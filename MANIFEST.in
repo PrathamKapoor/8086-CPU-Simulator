@@ -1,0 +1,30 @@
+# 8086 CPU Simulator — Distribution Manifest
+# ------------------------------------------------------------------
+# This file controls which files are included in source distributions
+# (e.g., python setup.py sdist / pdm build / poetry build equivalents).
+# For Maven/JAR builds, it serves as a reference packaging manifest.
+
+include VERSION
+include LICENSE
+include README.md
+include CHANGELOG.md
+include CONTRIBUTING.md
+include Dockerfile
+include docker-compose.yml
+include Makefile
+include MANIFEST.in
+
+recursive-include src *.java
+recursive-include src *.css
+recursive-include src/test *.java
+
+recursive-include examples *.asm
+recursive-exclude * *.class
+recursive-exclude * *.o
+recursive-exclude * __pycache__
+recursive-exclude * *.pyc
+recursive-exclude out *.class
+recursive-exclude target *.jar
+
+prune out
+prune .github/workflows/*.tmp

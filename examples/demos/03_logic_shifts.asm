@@ -1,0 +1,30 @@
+; Demo 03: Logic and Shift Operations
+; Demonstrates: AND | OR | XOR | NOT | TEST
+;               SHL | SHR | SAR | ROL | ROR | RCL | RCR
+
+MOV AX, 0xFF00
+AND AX, 0x0F0F
+OR  AX, 0xF0F0
+XOR AX, 0xFFFF
+NOT AX
+TEST AX, 0x8000
+
+MOV AX, 0x0001
+SHL AX, 8
+
+MOV AX, 0x8000
+SHR AX, 4
+
+MOV AX, 0x8000
+SAR AX, 4
+
+MOV AX, 0x8001
+ROL AX, 4
+ROR AX, 4
+
+STC
+MOV AX, 0x8000
+RCL AX, 1
+RCR AX, 1
+
+HLT

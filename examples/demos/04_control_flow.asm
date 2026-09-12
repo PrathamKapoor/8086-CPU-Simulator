@@ -1,0 +1,30 @@
+; Demo 04: Control Flow
+; Demonstrates: JMP | Jcc | CALL/RET | LOOP
+
+JMP 4
+NOP
+
+MOV AX, 5
+CMP AX, 5
+JZ 10
+
+MOV AX, 3
+CMP AX, 5
+JNZ 12
+
+STC
+JC 14
+
+CLC
+JNC 16
+
+MOV AX, 0x7FFF
+ADD AX, 1
+JO 18
+
+MOV AX, 0
+MOV CX, 3
+ADD AX, 1
+LOOP 21
+
+HLT

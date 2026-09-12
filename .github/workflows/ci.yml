@@ -1,0 +1,221 @@
+# ------------------------------------------------------------------
+# 8086 CPU Simulator — Continuous Integration Pipeline
+# ------------------------------------------------------------------
+# Triggers:
+#   - Push to main / master
+#   - Pull requests targeting main / master
+#   - Manual dispatch (workflow_dispatch)
+# Actions:
+#   - Build with Maven 3.9 + OpenJDK 21
+#   - Execute JUnit 5 test suite (Surefire)
+#   - Generate release artifact (fat JAR)
+#   - Push Docker image to Docker Hub
+# ------------------------------------------------------------------
+
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      build_version:
+        description: 'Custom build version'
+        required: false
+        default: '3.0.0'
+
+# ------------------------------------------------------------------
+# Job: Build, Test, Artifact, Docker
+# ------------------------------------------------------------------
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      JAVA_VERSION: '21'
+      MAVEN_VERSION: '3.9.6'
+      JAVA_OPTS: '-Xms256m -Xmx1g -XX:+UseG1GC -Dfile.encoding=UTF-8'
+
+    steps:
+      # ------------------------------------------------------------------
+      # Checkout source
+      # ------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ------------------------------------------------------------------
+      # Configure JDK 21
+      # ------------------------------------------------------------------
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: 'maven'
+
+      # ------------------------------------------------------------------
+      # Configure Maven
+      # ------------------------------------------------------------------
+      - name: Configure Maven
+        run: |
+          echo "MVN_VERSION=${{ env.MAVEN_VERSION }}" >> $GITHUB_ENV
+          echo "MAVEN_OPTS=-XX:+TieredCompilation -XX:TieredStopAtLevel=1" >> $GITHUB_ENV
+
+      # ------------------------------------------------------------------
+      # Cache Maven dependencies
+      # ------------------------------------------------------------------
+      - name: Cache Maven local repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      # ------------------------------------------------------------------
+      # Verify prerequisites
+      # ------------------------------------------------------------------
+      - name: Verify prerequisites
+        run: |
+          echo "Java version: $(java -version 2>&1 | head -n 1)"
+          echo "Maven version: $(mvn -v | head -n 1)"
+          echo "Current directory: $(pwd)"
+          ls -la
+
+      # ------------------------------------------------------------------
+      # Build (skip tests for faster artifact generation; tests run separately)
+      # ------------------------------------------------------------------
+      - name: Build with Maven
+        id: build
+        run: mvn clean package -B -DskipTests
+        env:
+          JAVA_OPTS: ${{ env.JAVA_OPTS }}
+
+      # ------------------------------------------------------------------
+      # Upload build artifact
+      # ------------------------------------------------------------------
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpu-simulator-${{ github.ref_name || '3.0.0' }}
+          path: target/*.jar
+          retention-days: 30
+          if-no-files-found: error
+
+      # ------------------------------------------------------------------
+      # Run JUnit 5 tests (Surefire plugin)
+      # ------------------------------------------------------------------
+      - name: Run JUnit 5 Tests
+        id: test
+        run: mvn test -B
+        env:
+          JAVA_OPTS: ${{ env.JAVA_OPTS }}
+
+      # ------------------------------------------------------------------
+      # Upload test results
+      # ------------------------------------------------------------------
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-${{ github.run_id }}
+          path: target/surefire-reports/
+          retention-days: 7
+          if-no-files-found: warn
+
+      # ------------------------------------------------------------------
+      # Build Docker image (multi-stage)
+      # ------------------------------------------------------------------
+      - name: Build Docker image
+        id: docker-build
+        run: docker build -t cpu-simulator:${{ github.ref_name || '3.0.0' }} --target runtime .
+
+      # ------------------------------------------------------------------
+      # Scan / inspect Docker image (optional security layer)
+      # ------------------------------------------------------------------
+      - name: Inspect Docker image layers
+        run: docker images cpu-simulator:${{ github.ref_name || '3.0.0' }}
+
+  # ------------------------------------------------------------------
+  # Job: Push to Docker Hub (only on tag push or manual trigger)
+  # ------------------------------------------------------------------
+  docker-publish:
+    name: Publish Docker Image
+    needs: [build-and-test]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ------------------------------------------------------------------
+      # Log in to Docker Hub
+      # ------------------------------------------------------------------
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # ------------------------------------------------------------------
+      # Extract version from VERSION file or tag
+      # ------------------------------------------------------------------
+      - name: Extract version
+        id: meta
+        run: |
+          VERSION=$(cat VERSION 2>/dev/null || echo "3.0.0")
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      # ------------------------------------------------------------------
+      # Build and push multi-stage image
+      # ------------------------------------------------------------------
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          target: runtime
+          push: true
+          tags: |
+            cpu-simulator:${{ steps.meta.outputs.version }}
+            cpu-simulator:latest
+          build-args: |
+            BUILD_VERSION=${{ steps.meta.outputs.version }}
+          labels: |
+            org.opencontainers.image.title=8086 CPU Simulator
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+
+  # ------------------------------------------------------------------
+  # Job: Code Quality / Lint (optional future enhancement)
+  # ------------------------------------------------------------------
+  lint-check:
+    name: Code Quality Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+      - name: Verify POM validity
+        run: mvn help:evaluate -Dexpression=project.version -q -DforceStdout || echo "POM version check skipped"
+
+# ------------------------------------------------------------------
+# Pipeline notifications (optional Slack / Discord webhook not configured)
+# ------------------------------------------------------------------

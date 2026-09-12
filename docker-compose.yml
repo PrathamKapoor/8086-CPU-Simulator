@@ -1,0 +1,59 @@
+# 8086 CPU Simulator — Docker Compose Orchestration
+# ------------------------------------------------------------------
+# Usage:
+#   docker-compose up --build
+#   docker-compose run --rm cpu-simulator
+# ------------------------------------------------------------------
+
+version: "3.9"
+
+services:
+  cpu-simulator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        - BUILD_VERSION=3.0.0
+    image: cpu-simulator:3.0.0
+    container_name: cpu-simulator
+    restart: unless-stopped
+    ports:
+      # Expose for optional future web interface / remote dashboard
+      - "8080:8080"
+    environment:
+      - JAVA_OPTS=-Xms256m -Xmx1g -XX:+UseG1GC -XX:+UseStringDeduplication -Dfile.encoding=UTF-8
+      - DISPLAY=
+    volumes:
+      - ./examples:/app/examples:ro
+      - simulator-data:/app/data
+    networks:
+      - simulator-net
+    healthcheck:
+      test: ["CMD", "sh", "-c", "java -cp /app/cpu-simulator.jar -version || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.5'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  simulator-data:
+    driver: local
+
+networks:
+  simulator-net:
+    driver: bridge
+    name: cpu-simulator-net

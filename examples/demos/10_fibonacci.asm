@@ -1,0 +1,59 @@
+; Demo 10: Fibonacci Sequence
+; Computes first 8 Fibonacci numbers
+
+MOV AX, 0
+MOV BX, 1
+MOV SI, 0x300
+
+MOV [SI], AX
+INC SI
+INC SI
+MOV [SI], BX
+INC SI
+INC SI
+
+MOV DX, AX
+ADD DX, BX
+MOV [SI], DX
+INC SI
+INC SI
+MOV AX, BX
+MOV BX, DX
+
+MOV DX, AX
+ADD DX, BX
+MOV [SI], DX
+INC SI
+INC SI
+MOV AX, BX
+MOV BX, DX
+
+MOV DX, AX
+ADD DX, BX
+MOV [SI], DX
+INC SI
+INC SI
+MOV AX, BX
+MOV BX, DX
+
+MOV DX, AX
+ADD DX, BX
+MOV [SI], DX
+INC SI
+INC SI
+MOV AX, BX
+MOV BX, DX
+
+MOV DX, AX
+ADD DX, BX
+MOV [SI], DX
+INC SI
+INC SI
+MOV AX, BX
+MOV BX, DX
+
+MOV DX, AX
+ADD DX, BX
+MOV [SI], DX
+
+HLT

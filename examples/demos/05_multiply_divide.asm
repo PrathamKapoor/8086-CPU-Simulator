@@ -1,0 +1,19 @@
+; Demo 05: Multiply and Divide
+; Demonstrates: MUL | IMUL | DIV | IDIV | CBW | CWD
+
+MOV AX, 200
+MOV BX, 300
+MUL BX
+
+MOV AX, 1000
+MOV DX, 0
+MOV CX, 7
+DIV CX
+
+MOV AX, 0xFF
+CBW
+
+MOV AX, 0x8000
+CWD
+
+HLT

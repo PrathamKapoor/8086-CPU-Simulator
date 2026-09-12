@@ -1,0 +1,37 @@
+; Demo 09: Complex Program - Sum of Array
+; Calculates sum of 5 words stored in memory
+
+MOV AX, 0x10
+MOV DS, AX
+MOV WORD [0x200], 10
+MOV WORD [0x202], 20
+MOV WORD [0x204], 30
+MOV WORD [0x206], 40
+MOV WORD [0x208], 50
+
+MOV AX, 0
+MOV CX, 5
+MOV SI, 0x200
+
+LOAD BX, [SI]
+ADD AX, BX
+INC SI
+INC SI
+LOAD BX, [SI]
+ADD AX, BX
+INC SI
+INC SI
+LOAD BX, [SI]
+ADD AX, BX
+INC SI
+INC SI
+LOAD BX, [SI]
+ADD AX, BX
+INC SI
+INC SI
+LOAD BX, [SI]
+ADD AX, BX
+
+MOV [0x210], AX
+
+HLT

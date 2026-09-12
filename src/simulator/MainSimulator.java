@@ -1,0 +1,162 @@
+package simulator;
+
+import cpu.CPU;
+import instruction.Instruction;
+import instruction.InstructionParser;
+import microoperation.MicroOperation;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+
+/**
+ * MainSimulator — CLI entry point for headless (no-GUI) execution.
+ * Runs a demo program and prints every micro-operation to stdout.
+ * For the full visual experience, run gui.MainGUI instead.
+ *
+ * Usage:
+ *   java -cp cpu-simulator.jar simulator.MainSimulator [program.asm]
+ *   java -cp cpu-simulator.jar simulator.MainSimulator          (runs built-in demo)
+ */
+public class MainSimulator {
+
+    private static final String BUILTIN_DEMO =
+        "; Demo: Arithmetic and Control Flow\n" +
+        "MOV AX, 100\n" +
+        "MOV BX, 50\n" +
+        "ADD AX, BX\n" +
+        "SUB AX, 30\n" +
+        "CMP AX, 120\n" +
+        "JZ 9\n" +
+        "MOV CX, 0\n" +
+        "JMP 10\n" +
+        "MOV CX, 1\n" +
+        "PUSH AX\n" +
+        "POP DX\n" +
+        "HLT\n";
+
+    public static void main(String[] args) {
+        System.out.println("==================================================");
+        System.out.println("   8086 CPU Simulator - RTL Level");
+        System.out.println("   Educational Tool for Computer Architecture");
+        System.out.println("==================================================\n");
+
+        String programText;
+        String source;
+
+        if (args.length > 0) {
+            Path filePath = Path.of(args[0]);
+            if (!Files.exists(filePath)) {
+                System.err.println("File not found: " + args[0]);
+                return;
+            }
+            try {
+                programText = Files.readString(filePath);
+                source = filePath.getFileName().toString();
+            } catch (IOException e) {
+                System.err.println("Error reading file: " + e.getMessage());
+                return;
+            }
+            System.out.println("Loading program from: " + source + "\n");
+        } else {
+            programText = BUILTIN_DEMO;
+            source = "built-in demo";
+            System.out.println("Running built-in demo. Usage: java -cp ... simulator.MainSimulator <file.asm>\n");
+        }
+
+        InstructionParser parser = new InstructionParser();
+        List<Instruction> instructions;
+        try {
+            instructions = parser.parseProgram(programText);
+        } catch (Exception e) {
+            System.err.println("Parse error: " + e.getMessage());
+            return;
+        }
+
+        System.out.println("Program listing (" + instructions.size() + " instructions):");
+        for (int i = 0; i < instructions.size(); i++) {
+            System.out.printf("  [%02d] %-30s  %s%n", i, instructions.get(i), instructions.get(i).getOpcode());
+        }
+        System.out.println();
+
+        CPU cpu = new CPU();
+        cpu.loadProgram(instructions);
+
+        System.out.println("=".repeat(70));
+
+        String lastPhase = "";
+        int safetyLimit  = 500;
+        int iterations   = 0;
+
+        while (!cpu.isHalted() && cpu.getCurrentMicroOp() != null && iterations++ < safetyLimit) {
+            MicroOperation op = cpu.step();
+            if (op == null) break;
+
+            String phase = switch (op.getType()) {
+                case MAR_LOAD_PC, MDR_LOAD_MEMORY, IR_LOAD_MDR -> "FETCH  ";
+                case DECODE -> "DECODE ";
+                case HALT   -> "HALT   ";
+                default     -> "EXECUTE";
+            };
+
+            if (!phase.equals(lastPhase)) {
+                System.out.println();
+                System.out.println("  -- " + phase.trim() + " --");
+                lastPhase = phase;
+            }
+
+            System.out.printf("  CLK %3d | %-35s | IP=%s%n",
+                cpu.getClock().getCycleCount(),
+                op.getRtlDescription(),
+                cpu.getRegister("IP").toHex());
+        }
+
+        if (iterations >= safetyLimit) {
+            System.out.println("\n[Safety limit reached - loop terminated]");
+        }
+
+        System.out.println("\n" + "=".repeat(70));
+        System.out.println("\nFinal Register State:");
+        System.out.println("  General Purpose:");
+        for (String name : List.of("AX","BX","CX","DX")) {
+            System.out.printf("    %-4s = %s  (high=%02X  low=%02X)%n",
+                name, cpu.getRegister(name).toHex(),
+                cpu.getRegister(name).highByte(),
+                cpu.getRegister(name).lowByte());
+        }
+        System.out.println("  Pointer/Index:");
+        for (String name : List.of("SP","BP","SI","DI")) {
+            System.out.printf("    %-4s = %s%n", name, cpu.getRegister(name).toHex());
+        }
+        System.out.println("  Segment:");
+        for (String name : List.of("CS","DS","SS","ES")) {
+            System.out.printf("    %-4s = %s  -> Physical base: 0x%05X%n",
+                name, cpu.getRegister(name).toHex(),
+                cpu.getRegister(name).output() * 16);
+        }
+        System.out.println("  Internal:");
+        for (String name : List.of("IP","IR","MAR","MDR")) {
+            System.out.printf("    %-4s = %s%n", name, cpu.getRegister(name).toHex());
+        }
+        System.out.println("  " + cpu.getFlags().flagsStringFull());
+
+        System.out.println("\nMemory snapshot (non-zero cells):");
+        int nonZero = 0;
+        for (int i = 0; i < cpu.getMemory().getSize(); i++) {
+            int val = cpu.getMemory().directRead(i);
+            if (val != 0) {
+                System.out.printf("    [0x%04X] = 0x%04X (%d)%n", i, val, val);
+                nonZero++;
+            }
+        }
+        if (nonZero == 0) System.out.println("    (all zero)");
+
+        System.out.println("\nStatistics:");
+        System.out.println("  Total clock cycles: " + cpu.getClock().getCycleCount());
+        System.out.println("  Total micro-ops executed: " + cpu.getExecutedTrace().size());
+        System.out.println("  Total instructions: " + instructions.size());
+        System.out.println("  Program source: " + source);
+        System.out.println("\nSimulation complete.");
+    }
+}

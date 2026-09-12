@@ -1,0 +1,24 @@
+; Demo 02: Arithmetic Operations
+; Demonstrates: ADD | SUB | ADC | SBB | INC | DEC | NEG | CMP
+
+MOV AX, 100
+MOV BX, 50
+ADD AX, BX
+SUB AX, 30
+INC AX
+DEC AX
+
+MOV CX, 5
+NEG CX
+
+CMP AX, BX
+
+STC
+MOV AX, 0xFFFF
+ADC AX, 1
+
+STC
+MOV AX, 0
+SBB AX, 1
+
+HLT
