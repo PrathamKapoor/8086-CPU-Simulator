@@ -1,0 +1,13 @@
+{
+  "name": "SUB basic",
+  "initial": {
+    "AX": "200"
+  },
+  "program": [
+    "SUB AX, 75",
+    "HLT"
+  ],
+  "expected": {
+    "AX": "125"
+  }
+}

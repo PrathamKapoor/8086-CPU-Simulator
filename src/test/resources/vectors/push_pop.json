@@ -1,0 +1,14 @@
+{
+  "name": "PUSH/POP",
+  "initial": {
+    "AX": "0xABCD"
+  },
+  "program": [
+    "PUSH AX",
+    "POP BX",
+    "HLT"
+  ],
+  "expected": {
+    "BX": "0xABCD"
+  }
+}

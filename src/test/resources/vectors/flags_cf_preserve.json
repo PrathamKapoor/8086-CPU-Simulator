@@ -1,0 +1,14 @@
+{
+  "name": "INC preserves CF",
+  "initial": {},
+  "program": [
+    "STC",
+    "MOV AX, 1",
+    "INC AX",
+    "HLT"
+  ],
+  "expected": {
+    "AX": "2",
+    "CF": 1
+  }
+}

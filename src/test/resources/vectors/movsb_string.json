@@ -1,0 +1,16 @@
+{
+  "name": "MOVSB 3 bytes",
+  "initial": {
+    "SI": "0x0100",
+    "DI": "0x0200",
+    "CX": "3"
+  },
+  "program": [
+    "CLD",
+    "MOVSB",
+    "MOVSB",
+    "MOVSB",
+    "HLT"
+  ],
+  "expected": {}
+}

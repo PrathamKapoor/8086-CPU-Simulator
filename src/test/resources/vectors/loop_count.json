@@ -1,0 +1,17 @@
+{
+  "name": "LOOP countdown 3",
+  "initial": {
+    "CX": "3"
+  },
+  "program": [
+    "MOV CX, 3",
+    "MOV AX, 0",
+    "ADD AX, 1",
+    "LOOP 2",
+    "HLT"
+  ],
+  "expected": {
+    "AX": "3",
+    "CX": "0"
+  }
+}

@@ -110,7 +110,7 @@ public final class VectorJson {
         Map<String, Integer> out = new LinkedHashMap<>();
         for (Map.Entry<String, Object> e : m.entrySet()) {
             String k = e.getKey().toUpperCase();
-            if (!VectorRunner.FLAG_SETTERS.containsKey(k)) {
+            if (!VectorRunner.FLAG_SETTERS.contains(k)) {
                 throw new IllegalArgumentException(src + ": unknown flag '" + e.getKey() + "'");
             }
             int v = toInt(e.getValue(), src);

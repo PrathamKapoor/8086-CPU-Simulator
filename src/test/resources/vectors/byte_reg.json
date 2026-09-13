@@ -1,0 +1,11 @@
+{
+  "name": "MOV byte register",
+  "initial": {},
+  "program": [
+    "MOV AL, 5",
+    "HLT"
+  ],
+  "expected": {
+    "AX": "0x0505"
+  }
+}

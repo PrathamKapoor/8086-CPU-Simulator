@@ -1,0 +1,20 @@
+{
+  "name": "DAA BCD 58+27",
+  "initial": {
+    "AX": "0x58"
+  },
+  "program": [
+    "ADD AL, 27",
+    "DAA",
+    "HLT"
+  ],
+  "expected": {
+    "AX": "0x85",
+    "AF": 1,
+    "CF": 0,
+    "ZF": 0,
+    "SF": 0,
+    "PF": 1,
+    "OF": 1
+  }
+}

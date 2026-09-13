@@ -1,0 +1,21 @@
+{
+  "name": "INTO trap to IVT 4",
+  "initial": {},
+  "program": [
+    "MOV AX, 0x7FFF",
+    "ADD AX, 1",
+    "INTO",
+    "MOV CX, 0xDEAD",
+    "HLT",
+    "NOP",
+    "NOP",
+    "NOP",
+    "NOP",
+    "NOP",
+    "NOP"
+  ],
+  "expected": {
+    "CX": "0xDEAD",
+    "halted": false
+  }
+}

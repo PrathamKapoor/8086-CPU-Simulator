@@ -1,0 +1,14 @@
+{
+  "name": "JMP unconditional",
+  "initial": {},
+  "program": [
+    "JMP 4",
+    "NOP",
+    "NOP",
+    "NOP",
+    "NOP",
+    "NOP",
+    "HLT"
+  ],
+  "expected": {}
+}

@@ -1,0 +1,13 @@
+{
+  "name": "MOV reg/reg",
+  "initial": {
+    "AX": "0x1234"
+  },
+  "program": [
+    "MOV BX, AX",
+    "HLT"
+  ],
+  "expected": {
+    "BX": "0x1234"
+  }
+}

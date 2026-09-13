@@ -1,0 +1,26 @@
+.gitignore for 8086 CPU Simulator (build artifacts + runtime data only)
+
+# Maven / build
+/target/
+!/target/*.jar
+/dependency-reduced-pom.xml
+
+# Local compilation artifacts (not packaged by mvn)
+/build/
+!/build/sources.txt
+
+# Previous broken per-package compilation artifacts (deprecated)
+/compile_errors.txt
+
+# Runtime / temporary
+*.log
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# System
+.DS_Store
+Thumbs.db
+
+# No secrets, no .env exclusions needed (no .env files in repo)

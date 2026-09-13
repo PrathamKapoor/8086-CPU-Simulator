@@ -120,6 +120,15 @@ jobs:
           JAVA_OPTS: ${{ env.JAVA_OPTS }}
 
       # ------------------------------------------------------------------
+      # Verification pipeline enforcement (Phase 2 seed)
+      # ------------------------------------------------------------------
+      - name: Run headless verification command
+        id: verify
+        run: java -cp target/*.jar simulator.MainSimulator verify
+        env:
+          JAVA_OPTS: ${{ env.JAVA_OPTS }}
+
+      # ------------------------------------------------------------------
       # Upload test results
       # ------------------------------------------------------------------
       - name: Upload test reports

@@ -1,0 +1,20 @@
+{
+  "name": "ADD signed overflow",
+  "initial": {
+    "AX": "0x7FFF",
+    "BX": "0x0001"
+  },
+  "program": [
+    "ADD AX, BX",
+    "HLT"
+  ],
+  "expected": {
+    "AX": "0x8000",
+    "OF": 1,
+    "SF": 1,
+    "ZF": 0,
+    "CF": 0,
+    "PF": 0,
+    "AF": 0
+  }
+}
