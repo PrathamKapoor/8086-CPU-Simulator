@@ -181,6 +181,15 @@ public class CPU {
             }
         }
 
+        // Flush BIU prefetch queue for control-flow events
+        instruction.Opcode currentOpcode = null;
+        if (decoder != null && decoder.getCurrentInstruction() != null) {
+            currentOpcode = decoder.getCurrentInstruction().getOpcode();
+        }
+        if (currentOpcode != null && requiresFlush(currentOpcode)) {
+            biu.getPrefetchQueue().clear();
+        }
+
         MicroOperation op = microOpBatch.get(batchIndex);
         clock.tick();
         op.execute();
@@ -335,6 +344,26 @@ public class CPU {
             case HALT -> "HALT";
             default -> "EXECUTE";
         };
+    }
+
+    private boolean requiresFlush(instruction.Opcode op) {
+        if (op == null) return false;
+        return op == instruction.Opcode.JMP
+            || op == instruction.Opcode.CALL
+            || op == instruction.Opcode.RET || op == instruction.Opcode.RETF
+            || op == instruction.Opcode.JZ_JE || op == instruction.Opcode.JNZ_JNE
+            || op == instruction.Opcode.JC_JB || op == instruction.Opcode.JNC_JNB
+            || op == instruction.Opcode.JO || op == instruction.Opcode.JNO
+            || op == instruction.Opcode.JS || op == instruction.Opcode.JNS
+            || op == instruction.Opcode.JP_JPE || op == instruction.Opcode.JNP_JPO
+            || op == instruction.Opcode.JL_JNGE || op == instruction.Opcode.JNL_JGE
+            || op == instruction.Opcode.JLE_JNG || op == instruction.Opcode.JNLE_JG
+            || op == instruction.Opcode.JB_JNAE || op == instruction.Opcode.JBE_JNA
+            || op == instruction.Opcode.JNBE_JA
+            || op == instruction.Opcode.LOOP || op == instruction.Opcode.LOOPZ
+            || op == instruction.Opcode.LOOPNZ || op == instruction.Opcode.JCXZ
+            || op == instruction.Opcode.INT || op == instruction.Opcode.INTO
+            || op == instruction.Opcode.IRET;
     }
 
     private static boolean isAluType(MicroOperationType t) {
