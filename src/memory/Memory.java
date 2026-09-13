@@ -63,6 +63,12 @@ public class Memory {
         return cells[address].read();
     }
 
+    public int readByte(int address) {
+        rangeCheck(address);
+        if (cells[address] == null) return 0;
+        return cells[address].read() & 0xFF;
+    }
+
     public MemoryCell getCell(int address) {
         rangeCheck(address);
         return getOrCreateCell(address);

@@ -59,6 +59,10 @@ public class CPU {
     private final MicroOperationExecutor executor;
     private final InstructionDecoder   decoder;
 
+    // ---- Microarchitecture ---------------------------------------------------
+    private final cpu.biu.BusInterfaceUnit biu;
+    private final cpu.eu.ExecutionUnit     eu;
+
     // ---- Program state ------------------------------------------------------
     private List<Instruction>    program     = new ArrayList<>();
     private List<MicroOperation> microOpBatch = new ArrayList<>();
@@ -111,6 +115,10 @@ public class CPU {
         controlUnit.setFlags(flags);
         controlUnit.setBuses(controlBus, dataBus);
 
+        // BIU / EU integration (Phase 3)
+        biu = new cpu.biu.BusInterfaceUnit(cs, pc, memory);
+        eu  = new cpu.eu.ExecutionUnit(this, biu.getPrefetchQueue());
+
         // Set initial segment values for realistic operation
         ds.load(0x0000);
         ss.load(0x0000);
@@ -135,6 +143,10 @@ public class CPU {
             memory.directWrite(i, i);
         }
 
+        // Initialize BIU / EU state
+        biu.reset();
+        eu.beginDecode();
+
         halted = false;
         primeNextInstruction();
     }
@@ -149,6 +161,25 @@ public class CPU {
      */
     public MicroOperation step() {
         if (halted || microOpBatch.isEmpty()) return null;
+
+        // BIU tick: fetch instruction bytes into prefetch queue
+        if (!biu.isHalted() && biu.getPrefetchQueue().availableBytes() < cpu.biu.PrefetchQueue.CAPACITY) {
+            biu.tick();
+        }
+
+        // EU tick: consume instruction bytes from prefetch queue
+        if (eu.canConsume()) {
+            int byteVal = eu.consumeByte();
+            // Conceptual model: byte represents instruction index (simulated)
+            // Because InstructionParser operates on assembly text, the EU
+            // tracks consumption conceptually rather than binary-decoding.
+            // Full binary decoder is outside this simplified model scope.
+            eu.beginDecode();
+            if (byteVal >= 0 && byteVal < program.size()) {
+                // Conceptual decode: EU knows which instruction is being fetched
+                eu.endDecode();
+            }
+        }
 
         MicroOperation op = microOpBatch.get(batchIndex);
         clock.tick();
