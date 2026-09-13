@@ -124,6 +124,7 @@ jobs:
       # ------------------------------------------------------------------
       - name: Run headless verification command
         id: verify
+        working-directory: .
         run: java -cp target/*.jar simulator.MainSimulator verify
         env:
           JAVA_OPTS: ${{ env.JAVA_OPTS }}

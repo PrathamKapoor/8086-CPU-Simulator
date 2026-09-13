@@ -17,7 +17,36 @@ public final class VectorRunner {
     private VectorRunner() { }
 
     public static VerificationReport runAll() {
-        return runAll(List.of("src/test/resources/vectors"));
+        return runAll(List.of(resolveDefaultVectorPath()));
+    }
+
+    private static String resolveDefaultVectorPath() {
+        Path defaultDir = Path.of("src/test/resources/vectors");
+        if (Files.isDirectory(defaultDir)) {
+            return defaultDir.toString();
+        }
+        // Fallback: find relative to .jar file or .class file location
+        try {
+            java.net.URL url = VectorRunner.class.getProtectionDomain().getCodeSource().getLocation();
+            if (url != null) {
+                Path jarDir = Path.of(url.toURI()).getParent();
+                Path repoRoot = jarDir.getParent(); // if jarDir is target/
+                if (repoRoot == null) repoRoot = jarDir;
+                Path candidate = repoRoot.resolve("src/test/resources/vectors");
+                if (Files.isDirectory(candidate)) {
+                    return candidate.toString();
+                }
+                // Try jarDir parent directly (if jar is in repo root or subdir)
+                candidate = jarDir.resolve("src/test/resources/vectors");
+                if (Files.isDirectory(candidate)) {
+                    return candidate.toString();
+                }
+            }
+        } catch (Exception e) {
+            // ignore, fall through
+        }
+        // Final fallback: working directory (current behavior)
+        return "src/test/resources/vectors";
     }
 
     public static VerificationReport runAll(List<String> paths) {
