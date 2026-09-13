@@ -1,0 +1,15 @@
+{
+  "name": "MOVSW word string copy",
+  "initial": {
+    "SI": "0x0100",
+    "DI": "0x0200",
+    "CX": "2"
+  },
+  "program": [
+    "CLD",
+    "MOVSW",
+    "MOVSW",
+    "HLT"
+  ],
+  "expected": {}
+}

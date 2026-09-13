@@ -1,0 +1,12 @@
+{
+  "name": "CLI and STI flag control",
+  "initial": {},
+  "program": [
+    "CLI",
+    "STI",
+    "HLT"
+  ],
+  "expected": {
+    "IF": 1
+  }
+}

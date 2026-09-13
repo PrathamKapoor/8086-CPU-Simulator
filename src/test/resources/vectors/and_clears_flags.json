@@ -1,0 +1,20 @@
+{
+  "name": "AND clears CF/OF and sets flags",
+  "initial": {
+    "AX": "0xFF00",
+    "BX": "0x0F0F"
+  },
+  "program": [
+    "AND AX, BX",
+    "HLT"
+  ],
+  "expected": {
+    "AX": "0x0F00",
+    "CF": 0,
+    "OF": 0,
+    "ZF": 0,
+    "SF": 0,
+    "PF": 1,
+    "AF": 0
+  }
+}

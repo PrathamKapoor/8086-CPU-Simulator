@@ -1,0 +1,11 @@
+{
+  "name": "MOV AX, [0x0100] memory to reg",
+  "initial": {
+    "AX": "0x0000"
+  },
+  "program": [
+    "MOV AX, [0x0100]",
+    "HLT"
+  ],
+  "expected": {}
+}

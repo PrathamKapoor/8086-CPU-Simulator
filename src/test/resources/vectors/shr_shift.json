@@ -1,0 +1,17 @@
+{
+  "name": "SHR logical right shift",
+  "initial": {
+    "AX": "0x0008"
+  },
+  "program": [
+    "SHR AX, 1",
+    "HLT"
+  ],
+  "expected": {
+    "AX": "0x0004",
+    "CF": 0,
+    "ZF": 0,
+    "SF": 0,
+    "PF": 1
+  }
+}

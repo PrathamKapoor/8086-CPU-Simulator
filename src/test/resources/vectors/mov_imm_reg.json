@@ -1,0 +1,11 @@
+{
+  "name": "MOV immediate to AX",
+  "initial": {},
+  "program": [
+    "MOV AX, 0xDEAD",
+    "HLT"
+  ],
+  "expected": {
+    "AX": "0xDEAD"
+  }
+}

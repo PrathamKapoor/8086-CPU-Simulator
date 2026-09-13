@@ -1,0 +1,15 @@
+{
+  "name": "DEC preserves CF and underflows",
+  "initial": {
+    "AX": "0x0000"
+  },
+  "program": [
+    "STC",
+    "DEC AX",
+    "HLT"
+  ],
+  "expected": {
+    "AX": "0xFFFF",
+    "CF": 1
+  }
+}

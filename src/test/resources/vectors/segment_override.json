@@ -1,0 +1,14 @@
+{
+  "name": "Segment override DS to AX",
+  "initial": {
+    "AX": "0xABCD",
+    "DS": "0x0100"
+  },
+  "program": [
+    "MOV [0x0100], AX",
+    "HLT"
+  ],
+  "expected": {
+    "AX": "0xABCD"
+  }
+}

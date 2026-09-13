@@ -1,0 +1,13 @@
+{
+  "name": "NOT inverts bits preserves flags",
+  "initial": {
+    "AX": "0x0F0F"
+  },
+  "program": [
+    "NOT AX",
+    "HLT"
+  ],
+  "expected": {
+    "AX": "0xF0F0"
+  }
+}

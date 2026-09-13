@@ -1,0 +1,21 @@
+{
+  "name": "ADC with initial carry",
+  "initial": {
+    "AX": "0x0002",
+    "BX": "0x0001"
+  },
+  "program": [
+    "STC",
+    "ADC AX, BX",
+    "HLT"
+  ],
+  "expected": {
+    "AX": "0x0004",
+    "CF": 0,
+    "OF": 0,
+    "ZF": 0,
+    "SF": 0,
+    "PF": 1,
+    "AF": 0
+  }
+}

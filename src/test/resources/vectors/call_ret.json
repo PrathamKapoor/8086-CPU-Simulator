@@ -1,0 +1,18 @@
+{
+  "name": "CALL pushes return address and RET pops",
+  "initial": {},
+  "program": [
+    "CALL 6",
+    "NOP",
+    "NOP",
+    "NOP",
+    "NOP",
+    "NOP",
+    "MOV AX, 0xDEAD",
+    "RET",
+    "HLT"
+  ],
+  "expected": {
+    "AX": "0xDEAD"
+  }
+}

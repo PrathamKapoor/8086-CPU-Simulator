@@ -1,0 +1,17 @@
+{
+  "name": "SBB with borrow",
+  "initial": {
+    "AX": "0x0005"
+  },
+  "program": [
+    "STC",
+    "SBB AX, 3",
+    "HLT"
+  ],
+  "expected": {
+    "AX": "0x0001",
+    "CF": 0,
+    "ZF": 0,
+    "SF": 0
+  }
+}

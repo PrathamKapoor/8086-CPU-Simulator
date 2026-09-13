@@ -1,0 +1,12 @@
+{
+  "name": "STC and CLC flag toggle",
+  "initial": {},
+  "program": [
+    "STC",
+    "CLC",
+    "HLT"
+  ],
+  "expected": {
+    "CF": 0
+  }
+}

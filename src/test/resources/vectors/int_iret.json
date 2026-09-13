@@ -1,0 +1,12 @@
+{
+  "name": "INT 0x10 and IRET",
+  "initial": {},
+  "program": [
+    "INT 0x10",
+    "IRET",
+    "HLT"
+  ],
+  "expected": {
+    "halted": false
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "CMP updates flags without changing AX",
+  "initial": {
+    "AX": "0x0100"
+  },
+  "program": [
+    "CMP AX, 0x0100",
+    "HLT"
+  ],
+  "expected": {
+    "AX": "0x0100",
+    "ZF": 1,
+    "CF": 0,
+    "SF": 0,
+    "OF": 0
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "SAR arithmetic shift preserves sign",
+  "initial": {
+    "AX": "0x8000"
+  },
+  "program": [
+    "SAR AX, 1",
+    "HLT"
+  ],
+  "expected": {
+    "AX": "0xC000",
+    "CF": 0,
+    "SF": 1,
+    "ZF": 0
+  }
+}

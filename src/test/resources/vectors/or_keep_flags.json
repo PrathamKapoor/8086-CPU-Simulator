@@ -1,0 +1,16 @@
+{
+  "name": "OR logic with zero result",
+  "initial": {
+    "AX": "0xF0F0"
+  },
+  "program": [
+    "OR AX, 0",
+    "HLT"
+  ],
+  "expected": {
+    "AX": "0xF0F0",
+    "CF": 0,
+    "ZF": 0,
+    "SF": 1
+  }
+}

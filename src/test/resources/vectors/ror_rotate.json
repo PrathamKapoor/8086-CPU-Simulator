@@ -1,0 +1,16 @@
+{
+  "name": "ROR rotate right through bit 15",
+  "initial": {
+    "AX": "0x8001"
+  },
+  "program": [
+    "ROR AX, 1",
+    "HLT"
+  ],
+  "expected": {
+    "AX": "0xC000",
+    "CF": 1,
+    "SF": 1,
+    "ZF": 0
+  }
+}

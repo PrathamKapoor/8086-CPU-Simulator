@@ -1,0 +1,16 @@
+{
+  "name": "NEG positive to negative",
+  "initial": {
+    "AX": "0x0005"
+  },
+  "program": [
+    "NEG AX",
+    "HLT"
+  ],
+  "expected": {
+    "AX": "0xFFFB",
+    "CF": 1,
+    "SF": 1,
+    "ZF": 0
+  }
+}

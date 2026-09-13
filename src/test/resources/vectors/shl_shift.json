@@ -1,0 +1,17 @@
+{
+  "name": "SHL basic shift left",
+  "initial": {
+    "AX": "0x0001"
+  },
+  "program": [
+    "SHL AX, 1",
+    "HLT"
+  ],
+  "expected": {
+    "AX": "0x0002",
+    "CF": 0,
+    "ZF": 0,
+    "SF": 0,
+    "PF": 0
+  }
+}
