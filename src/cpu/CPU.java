@@ -63,6 +63,16 @@ public class CPU {
     private final cpu.biu.BusInterfaceUnit biu;
     private final cpu.eu.ExecutionUnit     eu;
 
+    // ---- Microarchitecture metrics -------------------------------------------
+    private int  stallCycles          = 0;
+    private int  queueFlushes         = 0;
+    private int  bytesFetched         = 0;
+    private int  bytesConsumed        = 0;
+    private int  maxQueueOccupancy    = 0;
+    private int  totalOverlapCycles   = 0;
+    private int  busActiveCycles      = 0;
+    private int  biuFetchEvents       = 0;
+
     // ---- Program state ------------------------------------------------------
     private List<Instruction>    program     = new ArrayList<>();
     private List<MicroOperation> microOpBatch = new ArrayList<>();
@@ -146,6 +156,14 @@ public class CPU {
         // Initialize BIU / EU state
         biu.reset();
         eu.beginDecode();
+        stallCycles = 0;
+        queueFlushes = 0;
+        bytesFetched = 0;
+        bytesConsumed = 0;
+        maxQueueOccupancy = 0;
+        totalOverlapCycles = 0;
+        busActiveCycles = 0;
+        biuFetchEvents = 0;
 
         halted = false;
         primeNextInstruction();
@@ -163,22 +181,34 @@ public class CPU {
         if (halted || microOpBatch.isEmpty()) return null;
 
         // BIU tick: fetch instruction bytes into prefetch queue
+        boolean biuActiveThisCycle = false;
         if (!biu.isHalted() && biu.getPrefetchQueue().availableBytes() < cpu.biu.PrefetchQueue.CAPACITY) {
             biu.tick();
+            bytesFetched++;
+            biuFetchEvents++;
+            biuActiveThisCycle = true;
+            if (biu.getPrefetchQueue().availableBytes() > maxQueueOccupancy) {
+                maxQueueOccupancy = biu.getPrefetchQueue().availableBytes();
+            }
         }
 
         // EU tick: consume instruction bytes from prefetch queue
+        boolean euActiveThisCycle = false;
         if (eu.canConsume()) {
             int byteVal = eu.consumeByte();
-            // Conceptual model: byte represents instruction index (simulated)
-            // Because InstructionParser operates on assembly text, the EU
-            // tracks consumption conceptually rather than binary-decoding.
-            // Full binary decoder is outside this simplified model scope.
+            bytesConsumed++;
+            euActiveThisCycle = true;
             eu.beginDecode();
             if (byteVal >= 0 && byteVal < program.size()) {
-                // Conceptual decode: EU knows which instruction is being fetched
                 eu.endDecode();
             }
+        } else {
+            stallCycles++;
+        }
+
+        // Overlap tracking: both BIU and EU active in same cycle
+        if (biuActiveThisCycle && euActiveThisCycle) {
+            totalOverlapCycles++;
         }
 
         // Flush BIU prefetch queue for control-flow events
@@ -188,6 +218,7 @@ public class CPU {
         }
         if (currentOpcode != null && requiresFlush(currentOpcode)) {
             biu.getPrefetchQueue().clear();
+            queueFlushes++;
         }
 
         MicroOperation op = microOpBatch.get(batchIndex);
@@ -376,4 +407,16 @@ public class CPU {
             default -> false;
         };
     }
+
+    // ---- Microarchitecture instrumentation accessors ---------------------------
+    public int getStallCycles() { return stallCycles; }
+    public int getQueueFlushes() { return queueFlushes; }
+    public int getBytesFetched() { return bytesFetched; }
+    public int getBytesConsumed() { return bytesConsumed; }
+    public int getMaxQueueOccupancy() { return maxQueueOccupancy; }
+    public int getTotalOverlapCycles() { return totalOverlapCycles; }
+    public int getBusActiveCycles() { return busActiveCycles; }
+    public int getBiuFetchEvents() { return biuFetchEvents; }
+    public cpu.biu.BusInterfaceUnit getBiu() { return biu; }
+    public cpu.eu.ExecutionUnit getEu() { return eu; }
 }
