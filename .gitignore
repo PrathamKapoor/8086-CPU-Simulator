@@ -1,9 +1,11 @@
-.gitignore for 8086 CPU Simulator (build artifacts + runtime data only)
+# .gitignore for 8086 CPU Simulator
 
 # Maven / build
 /target/
-!/target/*.jar
 /dependency-reduced-pom.xml
+
+# Compiled class output (legacy javac output)
+/out/
 
 # Local compilation artifacts (not packaged by mvn)
 /build/
