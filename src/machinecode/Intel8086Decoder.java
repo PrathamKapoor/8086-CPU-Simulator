@@ -53,6 +53,8 @@ public final class Intel8086Decoder {
         } else {
             instruction = switch (opcode) {
                 case 0x90 -> new Instruction.Builder(Opcode.NOP).format(InstructionFormat.NO_OPERAND).raw("NOP").build();
+                case 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97 -> new Instruction.Builder(Opcode.XCHG).format(InstructionFormat.REG_REG)
+                    .dest("AX").src(wordRegister(opcode & 7)).raw("XCHG AX, " + wordRegister(opcode & 7)).build();
                 case 0xF4 -> new Instruction.Builder(Opcode.HLT).format(InstructionFormat.NO_OPERAND).raw("HLT").build();
                 case 0x88, 0x89, 0x8A, 0x8B -> decodeMov(cursor, opcode);
                 case 0x86, 0x87 -> decodeXchg(cursor, opcode);
