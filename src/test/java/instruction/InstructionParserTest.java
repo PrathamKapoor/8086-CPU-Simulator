@@ -15,6 +15,24 @@ class InstructionParserTest {
     @BeforeEach
     void setUp() { parser = new InstructionParser(); }
 
+    // ---- REP prefix (regression: "REP STOSB" on one line used to attach the
+    // prefix to whatever instruction followed on the NEXT line instead,
+    // because the line-continuation lookahead ran unconditionally instead of
+    // only when the same line had nothing after the mnemonic) ----
+    @Test void rep_prefix_same_line_attaches_to_its_own_instruction() {
+        List<Instruction> program = parser.parseProgram("REP STOSB\nHLT\n");
+        Assertions.assertEquals(Opcode.STOSB, program.get(0).getOpcode());
+        Assertions.assertEquals(Opcode.REP, program.get(0).getPrefix());
+        Assertions.assertEquals(Opcode.HLT, program.get(1).getOpcode());
+        Assertions.assertNull(program.get(1).getPrefix());
+    }
+
+    @Test void rep_prefix_split_across_lines_still_works() {
+        List<Instruction> program = parser.parseProgram("REP\nSTOSB\nHLT\n");
+        Assertions.assertEquals(Opcode.STOSB, program.get(0).getOpcode());
+        Assertions.assertEquals(Opcode.REP, program.get(0).getPrefix());
+    }
+
     // ---- Basic MOV ----
     @Test void mov_reg_reg() {
         Instruction i = parser.parseLine("MOV AX, BX");

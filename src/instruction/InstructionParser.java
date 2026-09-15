@@ -107,14 +107,18 @@ public class InstructionParser {
                 if (op != null && (op == Opcode.REP || op == Opcode.REPE || op == Opcode.REPNE)) {
                     prefixOpcode = op;
                     String rest = raw.substring(mnemonic.length()).trim();
-                    String nextRaw = "";
-                    while (lineIdx < lines.length) {
-                        nextRaw = lines[lineIdx++].trim();
-                        int c = nextRaw.indexOf(';');
-                        if (c != -1) nextRaw = nextRaw.substring(0, c).trim();
-                        if (!nextRaw.isEmpty()) {
-                            rest = nextRaw;
-                            break;
+                    // "REP STOSB" on one line already has its target instruction in
+                    // `rest`; only fall through to the next line(s) for the
+                    // "REP" / "STOSB" split-across-lines form, where `rest` is empty.
+                    if (rest.isEmpty()) {
+                        while (lineIdx < lines.length) {
+                            String nextRaw = lines[lineIdx++].trim();
+                            int c = nextRaw.indexOf(';');
+                            if (c != -1) nextRaw = nextRaw.substring(0, c).trim();
+                            if (!nextRaw.isEmpty()) {
+                                rest = nextRaw;
+                                break;
+                            }
                         }
                     }
                     raw = rest;
