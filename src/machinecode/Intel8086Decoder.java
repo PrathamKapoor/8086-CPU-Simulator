@@ -55,10 +55,11 @@ public final class Intel8086Decoder {
                 case 0x90 -> new Instruction.Builder(Opcode.NOP).format(InstructionFormat.NO_OPERAND).raw("NOP").build();
                 case 0xF4 -> new Instruction.Builder(Opcode.HLT).format(InstructionFormat.NO_OPERAND).raw("HLT").build();
                 case 0x88, 0x89, 0x8A, 0x8B -> decodeMov(cursor, opcode);
+                case 0x86, 0x87 -> decodeXchg(cursor, opcode);
                 case 0x00, 0x01, 0x02, 0x03, 0x08, 0x09, 0x0A, 0x0B,
                      0x10, 0x11, 0x12, 0x13, 0x18, 0x19, 0x1A, 0x1B,
                      0x20, 0x21, 0x22, 0x23, 0x28, 0x29, 0x2A, 0x2B,
-                     0x30, 0x31, 0x32, 0x33, 0x38, 0x39, 0x3A, 0x3B -> decodeAluModRm(cursor, opcode);
+                     0x30, 0x31, 0x32, 0x33, 0x38, 0x39, 0x3A, 0x3B, 0x84, 0x85 -> decodeAluModRm(cursor, opcode);
                 case 0x80, 0x81 -> decodeAluImmediate(cursor, opcode);
                 case 0xEB -> decodeRelative(cursor, Opcode.JMP, 2, 1, offset);
                 case 0xE9 -> decodeRelative(cursor, Opcode.JMP, 3, 2, offset);
@@ -111,7 +112,7 @@ public final class Intel8086Decoder {
     private Instruction decodeAluModRm(ByteCursor cursor, int opcode) {
         boolean byteWidth = (opcode & 1) == 0;
         boolean destinationIsReg = (opcode & 2) != 0;
-        Opcode semanticOpcode = aluOpcode((opcode & 0xF8) >>> 3);
+        Opcode semanticOpcode = opcode == 0x84 || opcode == 0x85 ? Opcode.TEST : aluOpcode((opcode & 0xF8) >>> 3);
         ModRm modRm = ModRm.decode(cursor);
         String reg = byteWidth ? byteRegister(modRm.reg()) : wordRegister(modRm.reg());
         if (modRm.registerDirect()) {
@@ -130,6 +131,16 @@ public final class Intel8086Decoder {
         return new Instruction.Builder(semanticOpcode).format(InstructionFormat.REG_INDIRECT_REG).dest(memory).src(reg)
             .baseReg(modRm.baseRegister()).indexReg(modRm.indexRegister()).disp(modRm.displacement())
             .raw(semanticOpcode + " " + memory + ", " + reg).build();
+    }
+
+    private Instruction decodeXchg(ByteCursor cursor, int opcode) {
+        boolean byteWidth = opcode == 0x86;
+        ModRm modRm = ModRm.decode(cursor);
+        if (!modRm.registerDirect()) throw new DecodeException("XCHG memory operands are not supported by the semantic executor");
+        String dest = byteWidth ? byteRegister(modRm.rm()) : wordRegister(modRm.rm());
+        String src = byteWidth ? byteRegister(modRm.reg()) : wordRegister(modRm.reg());
+        return new Instruction.Builder(Opcode.XCHG).format(InstructionFormat.REG_REG).dest(dest).src(src)
+            .raw("XCHG " + dest + ", " + src).build();
     }
 
     private Instruction decodeAluImmediate(ByteCursor cursor, int opcode) {

@@ -28,7 +28,8 @@ public final class Intel8086Encoder {
             case PUSH, POP -> encodePushPop(instruction);
             case NEG, NOT -> encodeUnary(instruction);
             case MOV -> encodeMov(instruction);
-            case ADD, OR, ADC, SBB, AND, SUB, XOR, CMP -> encodeAlu(instruction);
+            case XCHG -> encodeXchg(instruction);
+            case ADD, OR, ADC, SBB, AND, SUB, XOR, CMP, TEST -> encodeAlu(instruction);
             case JMP, CALL, JZ_JE, JNZ_JNE, JC_JB, JNC_JNB, JO, JNO, JS, JNS,
                  JP_JPE, JNP_JPO, JL_JNGE, JNL_JGE, JLE_JNG, JNLE_JG, JBE_JNA,
                  JNBE_JA, LOOP, LOOPZ, LOOPNZ, JCXZ -> encodeRelativeControlTransfer(instruction, instructionAddress);
@@ -131,6 +132,17 @@ public final class Intel8086Encoder {
         throw new EncodeException("unsupported " + instruction.getOpcode() + " operand layout: " + instruction.getFormat());
     }
 
+    private byte[] encodeXchg(Instruction instruction) {
+        String dest = normalized(instruction.getDestReg());
+        String src = normalized(instruction.getSrcReg());
+        if (instruction.getFormat() != InstructionFormat.REG_REG) throw new EncodeException("unsupported XCHG operand layout: " + instruction.getFormat());
+        ensureSameWidth(dest, src);
+        if (!isByteRegister(dest) && "AX".equals(dest)) return new byte[] {(byte) (0x90 + generalRegisterCode(src))};
+        if (!isByteRegister(src) && "AX".equals(src)) return new byte[] {(byte) (0x90 + generalRegisterCode(dest))};
+        return concatenate(new byte[] {(byte) (isByteRegister(dest) ? 0x86 : 0x87)},
+            ModRm.registerDirect(generalRegisterCode(src), generalRegisterCode(dest)).toBytes());
+    }
+
     private byte[] encodeRelativeControlTransfer(Instruction instruction, int address) {
         int target = instruction.getAddress();
         if (instruction.getOpcode() == Opcode.CALL) {
@@ -192,6 +204,7 @@ public final class Intel8086Encoder {
         return switch (opcode) {
             case ADD -> 0x00; case OR -> 0x08; case ADC -> 0x10; case SBB -> 0x18;
             case AND -> 0x20; case SUB -> 0x28; case XOR -> 0x30; case CMP -> 0x38;
+            case TEST -> 0x84;
             default -> throw new EncodeException("not an ALU binary opcode: " + opcode);
         };
     }
