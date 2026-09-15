@@ -52,11 +52,24 @@ public final class DebugSession implements MemoryAccessListener {
     private final Map<Integer, Watchpoint> watchpoints = new LinkedHashMap<>();
     private int nextBreakpointId = 1;
     private int nextWatchpointId = 1;
+    /**
+     * Pairs a captured snapshot with a purely-internal creation-order marker.
+     * This must be independent of {@code ExecutionSnapshot} itself (and of
+     * memory-journal position): two checkpoints taken back-to-back with no
+     * memory writes in between share the same journal position, but the
+     * later one still must be treated as "after" the earlier one once we
+     * restore past it — a plain journal-position comparison can't tell them
+     * apart. Restoring an earlier checkpoint prunes every later one to
+     * reflect the undo/redo-style divergence documented in the design note.
+     */
+    private record CheckpointEntry(long sequence, ExecutionSnapshot snapshot) { }
+
     private int nextCheckpointId = 1;
-    private final Map<Integer, ExecutionSnapshot> namedCheckpoints = new LinkedHashMap<>();
+    private long snapshotSequence = 0;
+    private final Map<Integer, CheckpointEntry> namedCheckpoints = new LinkedHashMap<>();
 
     private final int autoHistoryCapacity;
-    private final Deque<ExecutionSnapshot> autoHistory = new ArrayDeque<>();
+    private final Deque<CheckpointEntry> autoHistory = new ArrayDeque<>();
 
     private boolean tracingEnabled = false;
     private final List<TraceEvent> trace = new ArrayList<>();
@@ -539,28 +552,28 @@ public final class DebugSession implements MemoryAccessListener {
     public int checkpoint() {
         requireInstructionBoundary();
         int id = nextCheckpointId++;
-        namedCheckpoints.put(id, captureSnapshot());
+        namedCheckpoints.put(id, new CheckpointEntry(snapshotSequence++, captureSnapshot()));
         return id;
     }
 
     public boolean restore(int checkpointId) {
-        ExecutionSnapshot snap = namedCheckpoints.get(checkpointId);
-        if (snap == null) return false;
-        applySnapshot(snap);
-        pruneStaleHistory(snap.memoryJournalPosition());
+        CheckpointEntry entry = namedCheckpoints.get(checkpointId);
+        if (entry == null) return false;
+        applySnapshot(entry.snapshot());
+        pruneStaleHistory(entry.sequence());
         return true;
     }
 
     /** Rewind to the state recorded {@code count} instruction-boundaries ago (bounded by history capacity). */
     public boolean rewindInstructions(int count) {
         if (count <= 0 || count > autoHistory.size()) return false;
-        ExecutionSnapshot target = null;
+        CheckpointEntry target = null;
         var it = autoHistory.descendingIterator();
         for (int i = 0; i < count && it.hasNext(); i++) target = it.next();
         if (target == null) return false;
-        applySnapshot(target);
+        applySnapshot(target.snapshot());
         for (int i = 0; i < count; i++) autoHistory.pollLast();
-        pruneStaleHistory(target.memoryJournalPosition());
+        pruneStaleHistory(target.sequence());
         return true;
     }
 
@@ -579,12 +592,12 @@ public final class DebugSession implements MemoryAccessListener {
     private void recordAutoHistory() {
         if (autoHistoryCapacity <= 0) return;
         if (autoHistory.size() >= autoHistoryCapacity) autoHistory.pollFirst();
-        autoHistory.addLast(captureSnapshot());
+        autoHistory.addLast(new CheckpointEntry(snapshotSequence++, captureSnapshot()));
     }
 
-    private void pruneStaleHistory(long journalPositionFloor) {
-        autoHistory.removeIf(s -> s.memoryJournalPosition() > journalPositionFloor);
-        namedCheckpoints.values().removeIf(s -> s.memoryJournalPosition() > journalPositionFloor);
+    private void pruneStaleHistory(long sequenceFloor) {
+        autoHistory.removeIf(e -> e.sequence() > sequenceFloor);
+        namedCheckpoints.values().removeIf(e -> e.sequence() > sequenceFloor);
     }
 
     private ExecutionSnapshot captureSnapshot() {
@@ -681,8 +694,9 @@ public final class DebugSession implements MemoryAccessListener {
     }
 
     public StateDiff diffSinceCheckpoint(int checkpointId, ExecutionSnapshot after) {
-        ExecutionSnapshot before = namedCheckpoints.get(checkpointId);
-        if (before == null) throw new IllegalArgumentException("no such checkpoint: " + checkpointId);
+        CheckpointEntry entry = namedCheckpoints.get(checkpointId);
+        if (entry == null) throw new IllegalArgumentException("no such checkpoint: " + checkpointId);
+        ExecutionSnapshot before = entry.snapshot();
         Map<Integer, int[]> memoryDelta = journal.netChanges(before.memoryJournalPosition(), after.memoryJournalPosition());
         return StateDiff.of(before, after, memoryDelta);
     }
