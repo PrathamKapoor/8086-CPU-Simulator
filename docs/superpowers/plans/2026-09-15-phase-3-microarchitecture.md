@@ -133,4 +133,3 @@ assertTrue(biu.tick(BusOwner.EU_MEMORY, 8).waitingForBus());
 - [ ] **Step 2: Update documentation with exact abstraction, metrics, modes, limitations, CLI and experiment methodology.**
 - [ ] **Step 3: Run clean package, all JUnit tests, Phase 2 JSON verification, mutation regression, Phase 3 CLI benchmark/replay, and headless checks.**
 - [ ] **Step 4: Commit `Phase 3: CI and documentation`.**
-

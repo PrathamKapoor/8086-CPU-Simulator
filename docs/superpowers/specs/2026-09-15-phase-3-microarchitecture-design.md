@@ -117,4 +117,3 @@ control-transfer-heavy programs.  Replay tests compare normalized
 architectural state, typed event trace, cycle snapshots, and profiler JSON.
 CLI JSON is checked byte-for-byte across runs.  Existing Phase 2 tests execute
 unchanged in the full build.
-
