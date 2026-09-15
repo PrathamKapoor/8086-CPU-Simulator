@@ -48,7 +48,7 @@ public record ExperimentConfiguration(
     }
 
     /** Stable, order-independent description used both for display and (indirectly) for hashing. */
-    String describe() {
+    public String describe() {
         return "timing=" + timingModel + ",limit=" + executionMicroOpLimit + ",trace=" + tracingEnabled + ",debugger=" + debuggerEnabled;
     }
 }
