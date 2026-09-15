@@ -27,9 +27,16 @@ public final class Intel8086Decoder {
         int opcode = cursor.readU8();
         List<Integer> prefixBytes = new ArrayList<>();
         Opcode repeatPrefix = null;
-        if (opcode == 0xF2 || opcode == 0xF3) {
+        String segmentOverride = null;
+        while (opcode == 0x26 || opcode == 0x2E || opcode == 0x36 || opcode == 0x3E || opcode == 0xF2 || opcode == 0xF3) {
             prefixBytes.add(opcode);
-            repeatPrefix = opcode == 0xF2 ? Opcode.REPNE : Opcode.REP;
+            if (opcode == 0xF2 || opcode == 0xF3) {
+                if (repeatPrefix != null) throw new DecodeException("duplicate repeat prefix at offset " + offset);
+                repeatPrefix = opcode == 0xF2 ? Opcode.REPNE : Opcode.REP;
+            } else {
+                if (segmentOverride != null) throw new DecodeException("duplicate segment override at offset " + offset);
+                segmentOverride = switch (opcode) { case 0x26 -> "ES"; case 0x2E -> "CS"; case 0x36 -> "SS"; default -> "DS"; };
+            }
             opcode = cursor.readU8();
         }
         Instruction instruction;
@@ -74,7 +81,7 @@ public final class Intel8086Decoder {
         }
         int length = cursor.position() - offset;
         byte[] raw = Arrays.copyOfRange(bytes, offset, cursor.position());
-        instruction = copyWithEncoded(instruction, raw, repeatPrefix);
+        instruction = copyWithEncoded(instruction, raw, repeatPrefix, segmentOverride);
         return new DecodedInstruction(offset, raw, length, instruction, prefixBytes);
     }
 
@@ -228,11 +235,11 @@ public final class Intel8086Decoder {
         return builder.append(']').toString();
     }
 
-    private static Instruction copyWithEncoded(Instruction instruction, byte[] encoded, Opcode prefix) {
+    private static Instruction copyWithEncoded(Instruction instruction, byte[] encoded, Opcode prefix, String segmentOverride) {
         return new Instruction.Builder(instruction.getOpcode()).format(instruction.getFormat())
             .dest(instruction.getDestReg()).src(instruction.getSrcReg()).imm(instruction.getImmediate())
             .addr(instruction.getAddress()).raw(instruction.getRawText()).baseReg(instruction.getBaseReg())
-            .indexReg(instruction.getIndexReg()).disp(instruction.getDisplacement()).segOverride(instruction.getSegmentOverride())
+            .indexReg(instruction.getIndexReg()).disp(instruction.getDisplacement()).segOverride(segmentOverride == null ? instruction.getSegmentOverride() : segmentOverride)
             .encoded(encoded).prefix(prefix == null ? instruction.getPrefix() : prefix).build();
     }
 }

@@ -540,15 +540,17 @@ public class ControlUnit {
     }
 
     private int computeEffectiveAddr(Instruction instr) {
-        // If there's a direct address, apply DS:offset
-        if (instr.getAddress() != 0 && instr.getBaseReg() == null && instr.getIndexReg() == null) {
-            int segment = reg("DS").output();
-            return ((segment * 16) + instr.getAddress()) & 0xFFFFF;
+        String override = instr.getSegmentOverride();
+        if (instr.getBaseReg() == null && instr.getIndexReg() == null) {
+            int offset = instr.getAddress() != 0 ? instr.getAddress() : instr.getDisplacement();
+            String segmentName = override != null ? override.toUpperCase() : "DS";
+            return ((reg(segmentName).output() * 16) + offset) & 0xFFFFF;
         }
-
-        // If there's a direct address with no base/index, use it with DS
-        if (instr.getAddress() != 0 && instr.getBaseReg() == null && instr.getIndexReg() == null) {
-            return instr.getAddress();
+        if (override != null) {
+            int offset = instr.getDisplacement();
+            if (instr.getBaseReg() != null) offset += reg(instr.getBaseReg()).output();
+            if (instr.getIndexReg() != null) offset += reg(instr.getIndexReg()).output();
+            return ((reg(override.toUpperCase()).output() * 16) + (offset & 0xFFFF)) & 0xFFFFF;
         }
 
         // Compute segmented address from baseReg + indexReg + displacement

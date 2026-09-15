@@ -34,16 +34,27 @@ public final class Intel8086Encoder {
                  JNBE_JA, LOOP, LOOPZ, LOOPNZ, JCXZ -> encodeRelativeControlTransfer(instruction, instructionAddress);
             default -> throw new EncodeException("8086 encoder does not yet support " + instruction.getOpcode());
         };
-        if (instruction.getPrefix() == null) return new EncodedInstruction(instruction, bytes);
-        int prefix = switch (instruction.getPrefix()) {
+        int segmentPrefix = segmentPrefix(instruction.getSegmentOverride());
+        int repeatPrefix = instruction.getPrefix() == null ? -1 : switch (instruction.getPrefix()) {
             case REP, REPE -> 0xF3;
             case REPNE -> 0xF2;
             default -> throw new EncodeException("unsupported instruction prefix: " + instruction.getPrefix());
         };
-        byte[] prefixed = new byte[bytes.length + 1];
-        prefixed[0] = (byte) prefix;
-        System.arraycopy(bytes, 0, prefixed, 1, bytes.length);
+        if (segmentPrefix < 0 && repeatPrefix < 0) return new EncodedInstruction(instruction, bytes);
+        byte[] prefixed = new byte[bytes.length + (segmentPrefix < 0 ? 0 : 1) + (repeatPrefix < 0 ? 0 : 1)];
+        int p = 0;
+        if (segmentPrefix >= 0) prefixed[p++] = (byte) segmentPrefix;
+        if (repeatPrefix >= 0) prefixed[p++] = (byte) repeatPrefix;
+        System.arraycopy(bytes, 0, prefixed, p, bytes.length);
         return new EncodedInstruction(instruction, prefixed);
+    }
+
+    private int segmentPrefix(String segment) {
+        if (segment == null) return -1;
+        return switch (segment.toUpperCase(Locale.ROOT)) {
+            case "ES" -> 0x26; case "CS" -> 0x2E; case "SS" -> 0x36; case "DS" -> 0x3E;
+            default -> throw new EncodeException("unsupported segment override: " + segment);
+        };
     }
 
     private byte[] encodeMov(Instruction instruction) {
