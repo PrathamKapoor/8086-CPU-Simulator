@@ -17,6 +17,7 @@ public class Memory {
     private final AddressBus addressBus;
     private final DataBus    dataBus;
     private final ControlBus controlBus;
+    private MemoryAccessListener listener;
 
     public Memory(AddressBus addressBus, DataBus dataBus, ControlBus controlBus) {
         this.addressBus = addressBus;
@@ -24,6 +25,9 @@ public class Memory {
         this.controlBus = controlBus;
         this.cells = new MemoryCell[SIZE];
     }
+
+    /** Debugger hook: at most one listener, observing writes/reads at their actual mutation points. */
+    public void setAccessListener(MemoryAccessListener listener) { this.listener = listener; }
 
     // ---- Lazy allocation to keep footprint minimal ----
     private MemoryCell getOrCreateCell(int address) {
@@ -40,21 +44,32 @@ public class Memory {
     public void busRead() {
         int addr = addressBus.read();
         rangeCheck(addr);
-        dataBus.drive(getOrCreateCell(addr).read());
+        int value = getOrCreateCell(addr).read();
+        dataBus.drive(value);
+        if (listener != null) listener.onRead(addr, value);
     }
 
     /** Bus write: DataBus -> Memory[AddressBus]. */
     public void busWrite() {
         int addr = addressBus.read();
         rangeCheck(addr);
-        getOrCreateCell(addr).write(dataBus.read());
+        MemoryCell cell = getOrCreateCell(addr);
+        boolean hadPriorValue = cell.isWritten();
+        int priorValue = cell.read();
+        int newValue = dataBus.read();
+        cell.write(newValue);
+        if (listener != null) listener.onWrite(addr, hadPriorValue, priorValue, newValue);
     }
 
     // ---- Direct access (program load / GUI display -- bypasses buses) -----------
 
     public void directWrite(int address, int value) {
         rangeCheck(address);
-        getOrCreateCell(address).write(value);
+        MemoryCell cell = getOrCreateCell(address);
+        boolean hadPriorValue = cell.isWritten();
+        int priorValue = cell.read();
+        cell.write(value);
+        if (listener != null) listener.onWrite(address, hadPriorValue, priorValue, value);
     }
 
     public int directRead(int address) {

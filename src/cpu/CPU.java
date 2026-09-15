@@ -444,6 +444,40 @@ public class CPU {
     //  Lazy micro-op priming
     // =========================================================================
 
+    /**
+     * Debugger-only hook: after externally restoring registers/memory/flags
+     * to a checkpoint (see {@code debugger.DebugSession}), re-derive the
+     * pending micro-op batch for the (now-restored) PC and clear any halt
+     * latched after that point. This calls the exact same
+     * {@link #primeNextInstruction()} every ordinary instruction boundary
+     * already uses — it is not a second execution path.
+     */
+    public void resyncAfterExternalRestore() {
+        halted = false;
+        primeNextInstruction();
+    }
+
+    /**
+     * Debugger-only hook: restore the timing/BIU instrumentation counters
+     * captured in an earlier {@code debugger.ExecutionSnapshot}. These are
+     * plain metrics with no existing public mutator and no influence on
+     * architectural execution; this exists purely so a restored checkpoint
+     * is faithful in the debugger's displayed/verified state too.
+     */
+    public void restoreInstrumentationCounters(int stallCycles, int queueFlushes, int bytesFetched, int bytesConsumed,
+                                               int maxQueueOccupancy, int totalOverlapCycles, int busActiveCycles,
+                                               int biuFetchEvents, long totalCyclesRun) {
+        this.stallCycles = stallCycles;
+        this.queueFlushes = queueFlushes;
+        this.bytesFetched = bytesFetched;
+        this.bytesConsumed = bytesConsumed;
+        this.maxQueueOccupancy = maxQueueOccupancy;
+        this.totalOverlapCycles = totalOverlapCycles;
+        this.busActiveCycles = busActiveCycles;
+        this.biuFetchEvents = biuFetchEvents;
+        this.totalCyclesRun = totalCyclesRun;
+    }
+
     private void primeNextInstruction() {
         microOpBatch.clear();
         batchIndex = 0;
