@@ -18,21 +18,30 @@ public final class Intel8086Encoder {
             case NOP -> new byte[] { (byte) 0x90 };
             case HLT -> new byte[] { (byte) 0xF4 };
             case CLC, STC, CMC, CLD, STD, CLI, STI, PUSHF, POPF, LAHF, SAHF,
-                 AAA, DAA, AAS, DAS, CBW, CWD, RET, RETF, IRET, INTO, WAIT,
+                 AAA, DAA, AAS, DAS, CBW, CWD, RETF, IRET, INTO, WAIT,
                  XLAT, MOVSB, MOVSW, CMPSB, CMPSW, SCASB, SCASW, LODSB, LODSW,
                  STOSB, STOSW -> new byte[] { (byte) fixedOpcode(instruction.getOpcode()) };
             case AAM, AAD -> new byte[] { (byte) fixedOpcode(instruction.getOpcode()),
                 (byte) (instruction.getImmediate() == 0 ? 10 : instruction.getImmediate()) };
-            case INT -> new byte[] { (byte) 0xCD, (byte) instruction.getImmediate() };
+            case INT -> instruction.getImmediate() == 3
+                ? new byte[] { (byte) 0xCC }
+                : new byte[] { (byte) 0xCD, (byte) instruction.getImmediate() };
             case INC, DEC -> encodeIncDec(instruction);
             case PUSH, POP -> encodePushPop(instruction);
             case NEG, NOT -> encodeUnary(instruction);
             case MOV -> encodeMov(instruction);
             case XCHG -> encodeXchg(instruction);
-            case ADD, OR, ADC, SBB, AND, SUB, XOR, CMP, TEST -> encodeAlu(instruction);
+            case ADD, OR, ADC, SBB, AND, SUB, XOR, CMP -> encodeAlu(instruction);
+            case TEST -> encodeTest(instruction);
             case JMP, CALL, JZ_JE, JNZ_JNE, JC_JB, JNC_JNB, JO, JNO, JS, JNS,
                  JP_JPE, JNP_JPO, JL_JNGE, JNL_JGE, JLE_JNG, JNLE_JG, JBE_JNA,
                  JNBE_JA, LOOP, LOOPZ, LOOPNZ, JCXZ -> encodeRelativeControlTransfer(instruction, instructionAddress);
+            case RET -> encodeRet(instruction);
+            case SHL_SAL, SHR, SAR, ROL, ROR, RCL, RCR -> encodeShift(instruction);
+            case MUL, IMUL, DIV, IDIV -> encodeMulDiv(instruction);
+            case LEA, LDS, LES -> encodeLeaLdsLes(instruction);
+            case IN -> encodeIn(instruction);
+            case OUT -> encodeOut(instruction);
             default -> throw new EncodeException("8086 encoder does not yet support " + instruction.getOpcode());
         };
         int segmentPrefix = segmentPrefix(instruction.getSegmentOverride());
@@ -59,16 +68,31 @@ public final class Intel8086Encoder {
     }
 
     private byte[] encodeMov(Instruction instruction) {
+        if (instruction.getFormat() == InstructionFormat.REG_SEG) return encodeMovSeg(instruction);
+        if (instruction.getFormat() == InstructionFormat.SEG_REG_REG) return encodeMovSegMem(instruction);
         String dest = normalized(instruction.getDestReg());
         String src = normalized(instruction.getSrcReg());
+        boolean directAddress = instruction.getBaseReg() == null && instruction.getIndexReg() == null;
         if (instruction.getFormat() == InstructionFormat.REG_IMM || instruction.getFormat() == InstructionFormat.REG_IMM8) {
-            boolean byteWidth = (dest != null && isByteRegister(dest))
-                || (instruction.getRawText() != null && instruction.getRawText().toUpperCase(Locale.ROOT).startsWith("BYTE"));
+            boolean destMemory = isMemory(instruction.getDestReg());
+            boolean byteWidth = (dest != null && isByteRegister(dest)) || isByteSized(instruction);
             int immediate = instruction.getImmediate();
             if (byteWidth && (immediate < -128 || immediate > 0xFF)) throw new EncodeException("imm8 outside range: " + immediate);
             if (!byteWidth && (immediate < Short.MIN_VALUE || immediate > 0xFFFF)) throw new EncodeException("imm16 outside range: " + immediate);
+            if (!destMemory) {
+                ByteArrayOutputStream output = new ByteArrayOutputStream();
+                output.write((byteWidth ? 0xB0 : 0xB8) + generalRegisterCode(dest));
+                output.write(immediate & 0xFF);
+                if (!byteWidth) output.write((immediate >>> 8) & 0xFF);
+                return output.toByteArray();
+            }
+        }
+        if (instruction.getFormat() == InstructionFormat.REG_INDIRECT_IMM) {
+            boolean byteWidth = isByteSized(instruction);
+            int immediate = instruction.getImmediate();
             ByteArrayOutputStream output = new ByteArrayOutputStream();
-            output.write((byteWidth ? 0xB0 : 0xB8) + generalRegisterCode(dest));
+            output.write(byteWidth ? 0xC6 : 0xC7);
+            output.writeBytes(memoryOperand(instruction, 0).toBytes());
             output.write(immediate & 0xFF);
             if (!byteWidth) output.write((immediate >>> 8) & 0xFF);
             return output.toByteArray();
@@ -83,13 +107,38 @@ public final class Intel8086Encoder {
         }
         if (sourceMemory && !destinationMemory) {
             boolean byteWidth = isByteRegister(dest);
+            if (directAddress && ("AL".equals(dest) || "AX".equals(dest))) {
+                int addr = requireDirectAddress(instruction.getDisplacement());
+                return new byte[] { (byte) (byteWidth ? 0xA0 : 0xA1), (byte) (addr & 0xFF), (byte) ((addr >>> 8) & 0xFF) };
+            }
             return concatenate(new byte[] { (byte) (byteWidth ? 0x8A : 0x8B) }, memoryOperand(instruction, generalRegisterCode(dest)).toBytes());
         }
         if (destinationMemory && !sourceMemory) {
             boolean byteWidth = isByteRegister(src);
+            if (directAddress && ("AL".equals(src) || "AX".equals(src))) {
+                int addr = requireDirectAddress(instruction.getDisplacement());
+                return new byte[] { (byte) (byteWidth ? 0xA2 : 0xA3), (byte) (addr & 0xFF), (byte) ((addr >>> 8) & 0xFF) };
+            }
             return concatenate(new byte[] { (byte) (byteWidth ? 0x88 : 0x89) }, memoryOperand(instruction, generalRegisterCode(src)).toBytes());
         }
         throw new EncodeException("unsupported MOV operand layout: " + instruction.getFormat());
+    }
+
+    private byte[] encodeMovSeg(Instruction instruction) {
+        String dest = normalized(instruction.getDestReg());
+        String src = normalized(instruction.getSrcReg());
+        boolean destIsSeg = isSegmentRegister(dest);
+        String seg = destIsSeg ? dest : src;
+        String gpr = destIsSeg ? src : dest;
+        if (isByteRegister(gpr)) throw new EncodeException("MOV segment-register form requires a 16-bit general register");
+        int segCode = segmentRegisterCode(seg);
+        int opcodeByte = destIsSeg ? 0x8E : 0x8C;
+        return concatenate(new byte[] { (byte) opcodeByte }, ModRm.registerDirect(segCode, generalRegisterCode(gpr)).toBytes());
+    }
+
+    private byte[] encodeMovSegMem(Instruction instruction) {
+        int segCode = segmentRegisterCode(normalized(instruction.getDestReg()));
+        return concatenate(new byte[] { (byte) 0x8E }, memoryOperand(instruction, segCode).toBytes());
     }
 
     private byte[] encodeAlu(Instruction instruction) {
@@ -98,8 +147,7 @@ public final class Intel8086Encoder {
         String src = normalized(instruction.getSrcReg());
         if (instruction.getFormat() == InstructionFormat.REG_IMM || instruction.getFormat() == InstructionFormat.REG_IMM8
             || instruction.getFormat() == InstructionFormat.REG_INDIRECT_IMM) {
-            boolean byteWidth = (dest != null && isByteRegister(dest))
-                || (instruction.getRawText() != null && instruction.getRawText().toUpperCase(Locale.ROOT).startsWith("BYTE"));
+            boolean byteWidth = (dest != null && isByteRegister(dest)) || isByteSized(instruction);
             int immediate = instruction.getImmediate();
             if (byteWidth && (immediate < -128 || immediate > 0xFF)) throw new EncodeException("imm8 outside range: " + immediate);
             if (!byteWidth && (immediate < Short.MIN_VALUE || immediate > 0xFFFF)) throw new EncodeException("imm16 outside range: " + immediate);
@@ -132,9 +180,63 @@ public final class Intel8086Encoder {
         throw new EncodeException("unsupported " + instruction.getOpcode() + " operand layout: " + instruction.getFormat());
     }
 
+    private byte[] encodeTest(Instruction instruction) {
+        String dest = normalized(instruction.getDestReg());
+        String src = normalized(instruction.getSrcReg());
+        switch (instruction.getFormat()) {
+            case REG_IMM, REG_IMM8 -> {
+                boolean byteWidth = isByteRegister(dest);
+                int immediate = instruction.getImmediate();
+                if (byteWidth && (immediate < -128 || immediate > 0xFF)) throw new EncodeException("imm8 outside range: " + immediate);
+                if (!byteWidth && (immediate < Short.MIN_VALUE || immediate > 0xFFFF)) throw new EncodeException("imm16 outside range: " + immediate);
+                ByteArrayOutputStream output = new ByteArrayOutputStream();
+                if ("AL".equals(dest) || "AX".equals(dest)) {
+                    output.write(byteWidth ? 0xA8 : 0xA9);
+                } else {
+                    output.write(byteWidth ? 0xF6 : 0xF7);
+                    output.writeBytes(ModRm.registerDirect(0, generalRegisterCode(dest)).toBytes());
+                }
+                output.write(immediate & 0xFF);
+                if (!byteWidth) output.write((immediate >>> 8) & 0xFF);
+                return output.toByteArray();
+            }
+            case REG_INDIRECT_IMM -> {
+                boolean byteWidth = isByteSized(instruction);
+                int immediate = instruction.getImmediate();
+                if (byteWidth && (immediate < -128 || immediate > 0xFF)) throw new EncodeException("imm8 outside range: " + immediate);
+                if (!byteWidth && (immediate < Short.MIN_VALUE || immediate > 0xFFFF)) throw new EncodeException("imm16 outside range: " + immediate);
+                ByteArrayOutputStream output = new ByteArrayOutputStream();
+                output.write(byteWidth ? 0xF6 : 0xF7);
+                output.writeBytes(memoryOperand(instruction, 0).toBytes());
+                output.write(immediate & 0xFF);
+                if (!byteWidth) output.write((immediate >>> 8) & 0xFF);
+                return output.toByteArray();
+            }
+            case REG_REG -> {
+                boolean byteWidth = isByteRegister(dest);
+                ensureSameWidth(dest, src);
+                return concatenate(new byte[] { (byte) (byteWidth ? 0x84 : 0x85) },
+                    ModRm.registerDirect(generalRegisterCode(src), generalRegisterCode(dest)).toBytes());
+            }
+            case REG_REG_INDIRECT -> {
+                boolean byteWidth = isByteRegister(dest);
+                return concatenate(new byte[] { (byte) (byteWidth ? 0x84 : 0x85) }, memoryOperand(instruction, generalRegisterCode(dest)).toBytes());
+            }
+            case REG_INDIRECT_REG -> {
+                boolean byteWidth = isByteRegister(src);
+                return concatenate(new byte[] { (byte) (byteWidth ? 0x84 : 0x85) }, memoryOperand(instruction, generalRegisterCode(src)).toBytes());
+            }
+            default -> throw new EncodeException("unsupported TEST operand layout: " + instruction.getFormat());
+        }
+    }
+
     private byte[] encodeXchg(Instruction instruction) {
         String dest = normalized(instruction.getDestReg());
         String src = normalized(instruction.getSrcReg());
+        if (instruction.getFormat() == InstructionFormat.REG_REG_INDIRECT) {
+            boolean byteWidth = isByteRegister(dest);
+            return concatenate(new byte[] { (byte) (byteWidth ? 0x86 : 0x87) }, memoryOperand(instruction, generalRegisterCode(dest)).toBytes());
+        }
         if (instruction.getFormat() != InstructionFormat.REG_REG) throw new EncodeException("unsupported XCHG operand layout: " + instruction.getFormat());
         ensureSameWidth(dest, src);
         if (!isByteRegister(dest) && "AX".equals(dest)) return new byte[] {(byte) (0x90 + generalRegisterCode(src))};
@@ -163,22 +265,133 @@ public final class Intel8086Encoder {
     }
 
     private byte[] encodeIncDec(Instruction instruction) {
+        int extension = instruction.getOpcode() == Opcode.INC ? 0 : 1;
+        if (instruction.getFormat() == InstructionFormat.ADDR_ONLY) {
+            return concatenate(new byte[] { (byte) 0xFF }, memoryOperand(instruction, extension).toBytes());
+        }
         String target = normalized(instruction.getDestReg());
-        if (isByteRegister(target)) return new byte[] { (byte) 0xFE, (byte) ((instruction.getOpcode() == Opcode.INC ? 0xC0 : 0xC8) | generalRegisterCode(target)) };
+        if (isByteRegister(target)) return new byte[] { (byte) 0xFE, (byte) (0xC0 | (extension << 3) | generalRegisterCode(target)) };
         return new byte[] { (byte) ((instruction.getOpcode() == Opcode.INC ? 0x40 : 0x48) + generalRegisterCode(target)) };
     }
 
     private byte[] encodePushPop(Instruction instruction) {
+        if (instruction.getFormat() == InstructionFormat.SEG_REG_ONLY || instruction.getFormat() == InstructionFormat.SEG_REG) {
+            return encodeSegPushPop(instruction);
+        }
+        if (instruction.getFormat() == InstructionFormat.REG_REG_INDIRECT && instruction.getDestReg() == null) {
+            int extension = instruction.getOpcode() == Opcode.PUSH ? 6 : 0;
+            int opcodeByte = instruction.getOpcode() == Opcode.PUSH ? 0xFF : 0x8F;
+            return concatenate(new byte[] { (byte) opcodeByte }, memoryOperand(instruction, extension).toBytes());
+        }
         String target = normalized(instruction.getDestReg());
         if (isByteRegister(target)) throw new EncodeException("8086 PUSH/POP requires a word operand");
         return new byte[] { (byte) ((instruction.getOpcode() == Opcode.PUSH ? 0x50 : 0x58) + generalRegisterCode(target)) };
     }
 
+    private byte[] encodeSegPushPop(Instruction instruction) {
+        String seg = normalized(instruction.getDestReg());
+        int code = segmentRegisterCode(seg);
+        if (instruction.getOpcode() == Opcode.POP && "CS".equals(seg)) {
+            throw new EncodeException("POP CS is not a supported 8086 encoding");
+        }
+        int opcodeByte = instruction.getOpcode() == Opcode.PUSH ? (0x06 | (code << 3)) : (0x07 | (code << 3));
+        return new byte[] { (byte) opcodeByte };
+    }
+
     private byte[] encodeUnary(Instruction instruction) {
-        String target = normalized(instruction.getDestReg());
         int extension = instruction.getOpcode() == Opcode.NOT ? 2 : 3;
+        if (instruction.getFormat() == InstructionFormat.ADDR_ONLY) {
+            boolean byteWidth = isByteSized(instruction);
+            return concatenate(new byte[] { (byte) (byteWidth ? 0xF6 : 0xF7) }, memoryOperand(instruction, extension).toBytes());
+        }
+        String target = normalized(instruction.getDestReg());
         boolean byteWidth = isByteRegister(target);
         return new byte[] { (byte) (byteWidth ? 0xF6 : 0xF7), (byte) (0xC0 | (extension << 3) | generalRegisterCode(target)) };
+    }
+
+    private byte[] encodeMulDiv(Instruction instruction) {
+        String target = normalized(instruction.getDestReg());
+        int extension = switch (instruction.getOpcode()) {
+            case MUL -> 4; case IMUL -> 5; case DIV -> 6; case IDIV -> 7;
+            default -> throw new EncodeException("not a MUL/DIV opcode: " + instruction.getOpcode());
+        };
+        boolean byteWidth = isByteRegister(target);
+        return new byte[] { (byte) (byteWidth ? 0xF6 : 0xF7), (byte) (0xC0 | (extension << 3) | generalRegisterCode(target)) };
+    }
+
+    private byte[] encodeShift(Instruction instruction) {
+        String target = normalized(instruction.getDestReg());
+        int extension = switch (instruction.getOpcode()) {
+            case ROL -> 0; case ROR -> 1; case RCL -> 2; case RCR -> 3;
+            case SHL_SAL -> 4; case SHR -> 5; case SAR -> 7;
+            default -> throw new EncodeException("not a shift/rotate opcode: " + instruction.getOpcode());
+        };
+        if (instruction.getImmediate() != 1) {
+            throw new EncodeException("8086 machine code only encodes shift/rotate by literal 1 (D0/D1); "
+                + "shift-by-CL (D2/D3) is not resolved by the existing execution engine and is intentionally unsupported");
+        }
+        boolean byteWidth = isByteRegister(target);
+        return new byte[] { (byte) (byteWidth ? 0xD0 : 0xD1), (byte) (0xC0 | (extension << 3) | generalRegisterCode(target)) };
+    }
+
+    private byte[] encodeLeaLdsLes(Instruction instruction) {
+        if (instruction.getFormat() != InstructionFormat.REG_REG_INDIRECT) {
+            throw new EncodeException(instruction.getOpcode() + " requires a memory source operand: " + instruction.getFormat());
+        }
+        String dest = normalized(instruction.getDestReg());
+        if (isByteRegister(dest)) throw new EncodeException(instruction.getOpcode() + " requires a 16-bit destination register");
+        int opcodeByte = switch (instruction.getOpcode()) {
+            case LEA -> 0x8D; case LDS -> 0xC5; case LES -> 0xC4;
+            default -> throw new EncodeException("not LEA/LDS/LES: " + instruction.getOpcode());
+        };
+        return concatenate(new byte[] { (byte) opcodeByte }, memoryOperand(instruction, generalRegisterCode(dest)).toBytes());
+    }
+
+    private byte[] encodeIn(Instruction instruction) {
+        boolean isAL = "AL".equals(normalized(instruction.getDestReg()));
+        return switch (instruction.getFormat()) {
+            case FIXED_AL_IMM, FIXED_AX_IMM -> new byte[] { (byte) (isAL ? 0xE4 : 0xE5), (byte) instruction.getImmediate() };
+            case FIXED_AL_DX, FIXED_AX_DX -> new byte[] { (byte) (isAL ? 0xEC : 0xED) };
+            default -> throw new EncodeException("unsupported IN operand layout: " + instruction.getFormat());
+        };
+    }
+
+    private byte[] encodeOut(Instruction instruction) {
+        boolean isAL = "AL".equals(normalized(instruction.getSrcReg()));
+        return switch (instruction.getFormat()) {
+            case FIXED_AL_IMM, FIXED_AX_IMM -> new byte[] { (byte) (isAL ? 0xE6 : 0xE7), (byte) instruction.getImmediate() };
+            case FIXED_AL_DX, FIXED_AX_DX -> new byte[] { (byte) (isAL ? 0xEE : 0xEF) };
+            default -> throw new EncodeException("unsupported OUT operand layout: " + instruction.getFormat());
+        };
+    }
+
+    private byte[] encodeRet(Instruction instruction) {
+        if (instruction.getFormat() == InstructionFormat.IMM_ONLY) {
+            int imm = instruction.getImmediate();
+            if (imm < 0 || imm > 0xFFFF) throw new EncodeException("RET imm16 outside range: " + imm);
+            return new byte[] { (byte) 0xC2, (byte) (imm & 0xFF), (byte) ((imm >>> 8) & 0xFF) };
+        }
+        return new byte[] { (byte) 0xC3 };
+    }
+
+    private static int requireDirectAddress(int addr) {
+        if (addr < 0 || addr > 0xFFFF) throw new EncodeException("direct address outside 16-bit range: " + addr);
+        return addr;
+    }
+
+    private static boolean isByteSized(Instruction instruction) {
+        return instruction.getRawText() != null && instruction.getRawText().toUpperCase(Locale.ROOT).contains("BYTE");
+    }
+
+    static boolean isSegmentRegister(String register) {
+        return switch (normalized(register)) { case "ES", "CS", "SS", "DS" -> true; default -> false; };
+    }
+
+    static int segmentRegisterCode(String register) {
+        return switch (normalized(register)) {
+            case "ES" -> 0; case "CS" -> 1; case "SS" -> 2; case "DS" -> 3;
+            default -> throw new EncodeException("not an 8086 segment register: " + register);
+        };
     }
 
     private static ModRm memoryOperand(Instruction instruction, int regField) {
@@ -204,7 +417,6 @@ public final class Intel8086Encoder {
         return switch (opcode) {
             case ADD -> 0x00; case OR -> 0x08; case ADC -> 0x10; case SBB -> 0x18;
             case AND -> 0x20; case SUB -> 0x28; case XOR -> 0x30; case CMP -> 0x38;
-            case TEST -> 0x84;
             default -> throw new EncodeException("not an ALU binary opcode: " + opcode);
         };
     }

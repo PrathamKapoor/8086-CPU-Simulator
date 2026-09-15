@@ -34,8 +34,8 @@ class InvalidEncodingCorpusTest {
     @Test void invalidSemanticFormsAlwaysRaiseEncodeException() {
         assertThrows(EncodeException.class, () -> encoder.encode(new Instruction.Builder(Opcode.MOV).format(InstructionFormat.REG_IMM8).dest("AL").imm(256).build(), 0));
         assertThrows(EncodeException.class, () -> encoder.encode(new Instruction.Builder(Opcode.JZ_JE).format(InstructionFormat.REL_ONLY).addr(200).build(), 0));
-        assertThrows(EncodeException.class, () -> encoder.encode(new Instruction.Builder(Opcode.XCHG).format(InstructionFormat.REG_REG_INDIRECT).dest("AX").src("[BX]").baseReg("BX").build(), 0));
+        assertThrows(EncodeException.class, () -> encoder.encode(new Instruction.Builder(Opcode.XCHG).format(InstructionFormat.REG_INDIRECT_REG).dest("[BX]").src("AX").baseReg("BX").build(), 0));
         assertThrows(EncodeException.class, () -> encoder.encode(new Instruction.Builder(Opcode.MOV).format(InstructionFormat.REG_REG_INDIRECT).dest("AX").src("[BX]").baseReg("BX").segOverride("FS").build(), 0));
-        assertThrows(EncodeException.class, () -> encoder.encode(new Instruction.Builder(Opcode.LEA).format(InstructionFormat.REG_REG_INDIRECT).dest("AX").src("[BX]").baseReg("BX").build(), 0));
+        assertThrows(EncodeException.class, () -> encoder.encode(new Instruction.Builder(Opcode.LEA).format(InstructionFormat.REG_REG).dest("AX").src("BX").build(), 0));
     }
 }
