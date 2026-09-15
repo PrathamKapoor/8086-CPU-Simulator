@@ -275,7 +275,8 @@ public class MainGUI extends Application {
             tab("Flags", flagsTable),
             tab("Machine Code", machineCodeTable),
             tab("ISA Reference", createInstructionReference()),
-            tab("Debugger", new DebuggerPane(() -> programEditor.getText()))
+            tab("Debugger", new DebuggerPane(() -> programEditor.getText())),
+            tab("Research", new ResearchPane(() -> programEditor.getText()))
         );
 
         panel.getChildren().addAll(title, tabs);
