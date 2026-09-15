@@ -128,9 +128,15 @@ public final class DebugSession implements MemoryAccessListener {
         pendingWatchHits = new ArrayList<>();
 
         int preBatchIndex = cpu.getBatchIndex();
-        int preIndex = cpu.getRegister("IP").output();
         boolean isInstructionStart = preBatchIndex == 0;
-        currentExecutingInstructionIndex = preIndex;
+        // IMPORTANT: only re-derive the executing instruction's index AT a boundary.
+        // IP itself increments during the FETCH micro-op (3rd of the instruction's
+        // batch), well before EXECUTE-phase micro-ops run, so re-reading live IP on
+        // every stepMicroOp() call (rather than holding it fixed for the whole
+        // instruction) would mislabel that instruction's own later micro-ops as
+        // belonging to "the next instruction" the moment FETCH completes.
+        if (isInstructionStart) currentExecutingInstructionIndex = cpu.getRegister("IP").output();
+        int preIndex = currentExecutingInstructionIndex;
 
         boolean checkRegWatch = hasNonMemoryWatch();
         boolean captureRegState = checkRegWatch || tracingEnabled;
@@ -153,7 +159,17 @@ public final class DebugSession implements MemoryAccessListener {
             }
         }
 
-        MicroOperation op = cpu.step();
+        MicroOperation op;
+        try {
+            op = cpu.step();
+        } catch (ArithmeticException e) {
+            // e.g. DIV/IDIV by zero or quotient overflow raised from inside a micro-op's action.
+            return lastStopReason = StopReason.EXCEPTION_TRAP;
+        } catch (RuntimeException e) {
+            // A malformed/unsupported instruction reaching ControlUnit (e.g. an
+            // unknown register name or an operand format it has no case for).
+            return lastStopReason = StopReason.INVALID_INSTRUCTION;
+        }
         microOpCounter++;
         if (op != null && tracingEnabled) {
             trace.add(new TraceEvent.MicroOpExecuted(nextSeq(), cpu.getTotalCyclesRun(), preIndex,
@@ -444,7 +460,7 @@ public final class DebugSession implements MemoryAccessListener {
     public void setTracing(boolean enabled) { this.tracingEnabled = enabled; }
     public boolean isTracing() { return tracingEnabled; }
     public List<TraceEvent> trace() { return List.copyOf(trace); }
-    public void clearTrace() { trace.clear(); }
+    public void clearTrace() { trace.clear(); traceSequence = 0; }
 
     private long nextSeq() { return traceSequence++; }
 
