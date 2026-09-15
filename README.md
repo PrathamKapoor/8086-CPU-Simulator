@@ -118,6 +118,33 @@ without wall-clock measurement. Profiler JSON reports only trace-derived
 metrics: cycles, retirements/CPI, source tokens fetched/consumed, queue state,
 BIU/EU activity, overlap/stalls, memory events, and control-transfer flushes.
 
+## Phase 5 debugger & time-travel observability
+
+A first-class debugger built as an external observer/controller around the
+existing `CPU` — it does not duplicate instruction semantics or run a second
+execution engine. Supports run/pause/continue/step/step-over/step-out,
+instruction and machine-offset breakpoints (with a small deterministic
+conditional-expression model, e.g. `AX == 0`), memory/register/flag
+watchpoints hooked into the actual mutation points (never a poll over the
+1&nbsp;MB address space), a structured typed trace, a state-diff engine, an
+instruction-level "why did this change?" explainer, and deterministic
+checkpoint/restore/rewind time travel backed by an O(changes) memory undo
+journal rather than full-memory copies.
+
+```bash
+java -cp target/cpu-simulator.jar simulator.DebuggerCli examples/phase5-debugger-demo.asm scripts/phase5-debugger-ci-session.txt
+java -cp target/cpu-simulator.jar simulator.DebuggerCli examples/phase5-debugger-demo.asm   # interactive
+```
+
+A "Debugger" tab in the JavaFX GUI provides the same capabilities visually,
+alongside (not replacing) the existing architecture dashboard. Full
+reference, including the exact breakpoint-suppression semantics, the
+undo/redo (not branching-DAG) checkpoint model, and honestly-stated
+limitations, is in
+[`docs/verification/phase-5-debugger.md`](docs/verification/phase-5-debugger.md).
+This is deterministic **simulator-state** time travel, not physical reverse
+execution of an actual 8086.
+
 ## Running
 
 ```bash
