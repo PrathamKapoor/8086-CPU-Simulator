@@ -39,6 +39,11 @@ public final class Intel8086Decoder {
                 case 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77,
                      0x78, 0x79, 0x7A, 0x7B, 0x7C, 0x7D, 0x7E, 0x7F,
                      0xE0, 0xE1, 0xE2, 0xE3 -> decodeRelative(cursor, controlOpcode(opcode), 2, 1, offset);
+                case 0xD4, 0xD5 -> decodeAdjust(cursor, opcode);
+                case 0xCD -> decodeInterrupt(cursor);
+                case 0x27, 0x2F, 0x37, 0x3F, 0x98, 0x99, 0x9B, 0x9C, 0x9D, 0x9E, 0x9F,
+                     0xA4, 0xA5, 0xA6, 0xA7, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF,
+                     0xC3, 0xCB, 0xCE, 0xCF, 0xD7, 0xF5, 0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD -> fixedInstruction(opcode);
                 default -> throw new DecodeException("Unsupported 8086 opcode 0x" + String.format("%02X", opcode) + " at offset " + offset);
             };
         }
@@ -110,6 +115,38 @@ public final class Intel8086Decoder {
         int target = startOffset + length + displacement;
         return new Instruction.Builder(opcode).format(InstructionFormat.REL_ONLY).addr(target)
             .raw(opcode + " " + target).build();
+    }
+
+    private Instruction decodeAdjust(ByteCursor cursor, int opcode) {
+        Opcode semantic = opcode == 0xD4 ? Opcode.AAM : Opcode.AAD;
+        int base = cursor.readU8();
+        return new Instruction.Builder(semantic).format(InstructionFormat.NO_OPERAND).imm(base)
+            .raw(semantic + " " + hex(base, 2)).build();
+    }
+
+    private Instruction decodeInterrupt(ByteCursor cursor) {
+        int vector = cursor.readU8();
+        return new Instruction.Builder(Opcode.INT).format(InstructionFormat.IMM_ONLY).imm(vector)
+            .raw("INT " + hex(vector, 2)).build();
+    }
+
+    private static Instruction fixedInstruction(int opcode) {
+        Opcode semantic = switch (opcode) {
+            case 0xF8 -> Opcode.CLC; case 0xF9 -> Opcode.STC; case 0xF5 -> Opcode.CMC; case 0xFC -> Opcode.CLD;
+            case 0xFD -> Opcode.STD; case 0xFA -> Opcode.CLI; case 0xFB -> Opcode.STI; case 0x9C -> Opcode.PUSHF;
+            case 0x9D -> Opcode.POPF; case 0x9F -> Opcode.LAHF; case 0x9E -> Opcode.SAHF; case 0x37 -> Opcode.AAA;
+            case 0x27 -> Opcode.DAA; case 0x3F -> Opcode.AAS; case 0x2F -> Opcode.DAS; case 0x98 -> Opcode.CBW;
+            case 0x99 -> Opcode.CWD; case 0xC3 -> Opcode.RET; case 0xCB -> Opcode.RETF; case 0xCF -> Opcode.IRET;
+            case 0xCE -> Opcode.INTO; case 0x9B -> Opcode.WAIT; case 0xD7 -> Opcode.XLAT; case 0xA4 -> Opcode.MOVSB;
+            case 0xA5 -> Opcode.MOVSW; case 0xA6 -> Opcode.CMPSB; case 0xA7 -> Opcode.CMPSW; case 0xAA -> Opcode.STOSB;
+            case 0xAB -> Opcode.STOSW; case 0xAC -> Opcode.LODSB; case 0xAD -> Opcode.LODSW; case 0xAE -> Opcode.SCASB;
+            case 0xAF -> Opcode.SCASW; default -> throw new DecodeException("not a fixed 8086 opcode: 0x" + String.format("%02X", opcode));
+        };
+        InstructionFormat format = switch (semantic) {
+            case MOVSB, MOVSW, CMPSB, CMPSW, SCASB, SCASW, LODSB, LODSW, STOSB, STOSW -> InstructionFormat.STRING_ONLY;
+            default -> InstructionFormat.NO_OPERAND;
+        };
+        return new Instruction.Builder(semantic).format(format).raw(semantic.toString()).build();
     }
 
     private static Opcode aluOpcode(int extension) {

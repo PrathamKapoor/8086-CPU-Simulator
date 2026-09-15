@@ -17,6 +17,13 @@ public final class Intel8086Encoder {
         byte[] bytes = switch (instruction.getOpcode()) {
             case NOP -> new byte[] { (byte) 0x90 };
             case HLT -> new byte[] { (byte) 0xF4 };
+            case CLC, STC, CMC, CLD, STD, CLI, STI, PUSHF, POPF, LAHF, SAHF,
+                 AAA, DAA, AAS, DAS, CBW, CWD, RET, RETF, IRET, INTO, WAIT,
+                 XLAT, MOVSB, MOVSW, CMPSB, CMPSW, SCASB, SCASW, LODSB, LODSW,
+                 STOSB, STOSW -> new byte[] { (byte) fixedOpcode(instruction.getOpcode()) };
+            case AAM, AAD -> new byte[] { (byte) fixedOpcode(instruction.getOpcode()),
+                (byte) (instruction.getImmediate() == 0 ? 10 : instruction.getImmediate()) };
+            case INT -> new byte[] { (byte) 0xCD, (byte) instruction.getImmediate() };
             case MOV -> encodeMov(instruction);
             case ADD, OR, ADC, SBB, AND, SUB, XOR, CMP -> encodeAlu(instruction);
             case JMP, CALL, JZ_JE, JNZ_JNE, JC_JB, JNC_JNB, JO, JNO, JS, JNS,
@@ -152,6 +159,21 @@ public final class Intel8086Encoder {
             case JL_JNGE -> 0x7C; case JNL_JGE -> 0x7D; case JLE_JNG -> 0x7E; case JNLE_JG -> 0x7F;
             case LOOPNZ -> 0xE0; case LOOPZ -> 0xE1; case LOOP -> 0xE2; case JCXZ -> 0xE3;
             default -> throw new EncodeException("not an 8086 rel8 control-transfer opcode: " + opcode);
+        };
+    }
+
+    static int fixedOpcode(Opcode opcode) {
+        return switch (opcode) {
+            case CLC -> 0xF8; case STC -> 0xF9; case CMC -> 0xF5; case CLD -> 0xFC;
+            case STD -> 0xFD; case CLI -> 0xFA; case STI -> 0xFB; case PUSHF -> 0x9C;
+            case POPF -> 0x9D; case LAHF -> 0x9F; case SAHF -> 0x9E; case AAA -> 0x37;
+            case DAA -> 0x27; case AAS -> 0x3F; case DAS -> 0x2F; case AAM -> 0xD4;
+            case AAD -> 0xD5; case CBW -> 0x98; case CWD -> 0x99; case RET -> 0xC3;
+            case RETF -> 0xCB; case IRET -> 0xCF; case INTO -> 0xCE; case WAIT -> 0x9B;
+            case XLAT -> 0xD7; case MOVSB -> 0xA4; case MOVSW -> 0xA5; case CMPSB -> 0xA6;
+            case CMPSW -> 0xA7; case SCASB -> 0xAE; case SCASW -> 0xAF; case LODSB -> 0xAC;
+            case LODSW -> 0xAD; case STOSB -> 0xAA; case STOSW -> 0xAB;
+            default -> throw new EncodeException("not a fixed 8086 opcode: " + opcode);
         };
     }
 
