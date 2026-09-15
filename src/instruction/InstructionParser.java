@@ -448,7 +448,7 @@ public class InstructionParser {
                 String[] ops = splitOperands(operandsRaw, 2);
                 String dst = ops[0].trim();
                 String src = ops[1].trim();
-                validateReg16OrByteReg(dst);
+                if (!isMemoryRef(dst)) validateReg16OrByteReg(dst);
 
                 if (isMemoryRef(dst)) {
                     ParsedMem mem = parseMemoryRef(dst);

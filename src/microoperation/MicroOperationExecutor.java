@@ -393,6 +393,83 @@ public class MicroOperationExecutor {
     }
 
     // ============================================================
+    //  EXECUTE — ALU binary with one memory-resident operand (MDR)
+    //  Mirrors alu_binary/alu_imm exactly; the memory side is staged
+    //  into MDR by a prior load_effective_addr()+load_step2_MDR() pair,
+    //  and (for the RMW dest-is-memory forms) written back by a
+    //  subsequent store_step3_write().
+    // ============================================================
+
+    public MicroOperation alu_reg_mdr(MicroOperationType type, ALU.Operation op, String dst) {
+        return new MicroOperation(
+            type,
+            dst + " <- " + dst + " op MDR",
+            () -> {
+                controlBus.clearAll();
+                controlBus.assert_(ControlSignal.ALU_ENABLE);
+                controlBus.assert_(ControlSignal.REGISTER_LOAD);
+                alu.setActive(true);
+                int result = alu.execute(op, reg(dst).output(), mdr.output());
+                reg(dst).load(result);
+                dataBus.drive(result);
+            },
+            dst, "MDR", MicroOperation.BusActivity.DATA_BUS
+        );
+    }
+
+    public MicroOperation alu_mdr_reg(MicroOperationType type, ALU.Operation op, String src) {
+        return new MicroOperation(
+            type,
+            "MDR <- MDR op " + src,
+            () -> {
+                controlBus.clearAll();
+                controlBus.assert_(ControlSignal.ALU_ENABLE);
+                alu.setActive(true);
+                int result = alu.execute(op, mdr.output(), reg(src).output());
+                mdr.load(result);
+                dataBus.drive(result);
+            },
+            "MDR", src, MicroOperation.BusActivity.DATA_BUS
+        );
+    }
+
+    public MicroOperation alu_mdr_imm(MicroOperationType type, ALU.Operation op, int imm) {
+        return new MicroOperation(
+            type,
+            "MDR <- MDR op " + imm,
+            () -> {
+                controlBus.clearAll();
+                controlBus.assert_(ControlSignal.ALU_ENABLE);
+                alu.setActive(true);
+                int result = alu.execute(op, mdr.output(), imm);
+                mdr.load(result);
+                dataBus.drive(result);
+            },
+            "MDR", "#" + imm, MicroOperation.BusActivity.DATA_BUS
+        );
+    }
+
+    public MicroOperation alu_unary_mdr(MicroOperationType type, ALU.Operation op) {
+        String sym = switch (op) {
+            case INC -> "++"; case DEC -> "--"; case NEG -> "NEG"; case NOT -> "~";
+            default -> "?";
+        };
+        return new MicroOperation(
+            type,
+            "MDR <- " + sym + " MDR",
+            () -> {
+                controlBus.clearAll();
+                controlBus.assert_(ControlSignal.ALU_ENABLE);
+                alu.setActive(true);
+                int result = alu.execute(op, mdr.output(), 0);
+                mdr.load(result);
+                dataBus.drive(result);
+            },
+            "MDR", "MDR", MicroOperation.BusActivity.DATA_BUS
+        );
+    }
+
+    // ============================================================
     //  EXECUTE — CMP / TEST
     // ============================================================
 
@@ -453,6 +530,98 @@ public class MicroOperationExecutor {
                 dataBus.clear();
             },
             "FLAGS", r1 + "/#" + imm, MicroOperation.BusActivity.NONE
+        );
+    }
+
+    // ---- CMP/TEST variants with one memory-resident operand (MDR) ----
+
+    public MicroOperation alu_cmp_reg_mdr(String r1) {
+        return new MicroOperation(
+            MicroOperationType.ALU_CMP,
+            "FLAGS <- CMP(" + r1 + ", MDR)",
+            () -> {
+                controlBus.clearAll();
+                controlBus.assert_(ControlSignal.ALU_ENABLE);
+                alu.setActive(true);
+                alu.execute(ALU.Operation.CMP, reg(r1).output(), mdr.output());
+                dataBus.clear();
+            },
+            "FLAGS", r1 + "/MDR", MicroOperation.BusActivity.NONE
+        );
+    }
+
+    public MicroOperation alu_cmp_mdr_reg(String r2) {
+        return new MicroOperation(
+            MicroOperationType.ALU_CMP,
+            "FLAGS <- CMP(MDR, " + r2 + ")",
+            () -> {
+                controlBus.clearAll();
+                controlBus.assert_(ControlSignal.ALU_ENABLE);
+                alu.setActive(true);
+                alu.execute(ALU.Operation.CMP, mdr.output(), reg(r2).output());
+                dataBus.clear();
+            },
+            "FLAGS", "MDR/" + r2, MicroOperation.BusActivity.NONE
+        );
+    }
+
+    public MicroOperation alu_cmp_mdr_imm(int imm) {
+        return new MicroOperation(
+            MicroOperationType.ALU_CMP,
+            "FLAGS <- CMP(MDR, " + imm + ")",
+            () -> {
+                controlBus.clearAll();
+                controlBus.assert_(ControlSignal.ALU_ENABLE);
+                alu.setActive(true);
+                alu.execute(ALU.Operation.CMP, mdr.output(), imm);
+                dataBus.clear();
+            },
+            "FLAGS", "MDR/#" + imm, MicroOperation.BusActivity.NONE
+        );
+    }
+
+    public MicroOperation alu_test_reg_mdr(String r1) {
+        return new MicroOperation(
+            MicroOperationType.ALU_TEST,
+            "FLAGS <- TEST(" + r1 + ", MDR)",
+            () -> {
+                controlBus.clearAll();
+                controlBus.assert_(ControlSignal.ALU_ENABLE);
+                alu.setActive(true);
+                alu.execute(ALU.Operation.TEST, reg(r1).output(), mdr.output());
+                dataBus.clear();
+            },
+            "FLAGS", r1 + "/MDR", MicroOperation.BusActivity.NONE
+        );
+    }
+
+    public MicroOperation alu_test_mdr_reg(String r2) {
+        return new MicroOperation(
+            MicroOperationType.ALU_TEST,
+            "FLAGS <- TEST(MDR, " + r2 + ")",
+            () -> {
+                controlBus.clearAll();
+                controlBus.assert_(ControlSignal.ALU_ENABLE);
+                alu.setActive(true);
+                alu.execute(ALU.Operation.TEST, mdr.output(), reg(r2).output());
+                dataBus.clear();
+            },
+            "FLAGS", "MDR/" + r2, MicroOperation.BusActivity.NONE
+        );
+    }
+
+    public MicroOperation alu_test_mdr_imm(int imm) {
+        return new MicroOperation(
+            MicroOperationType.ALU_TEST,
+            "FLAGS <- TEST(MDR, " + imm + ")",
+            () -> {
+                controlBus.clearAll();
+                controlBus.assert_(ControlSignal.ALU_ENABLE);
+                alu.setActive(true);
+                alu.execute(ALU.Operation.TEST, mdr.output(), imm);
+                dataBus.clear();
+            },
+            "FLAGS", "MDR/#" + imm, MicroOperation.BusActivity.NONE
         );
     }
 
@@ -597,6 +766,25 @@ public class MicroOperationExecutor {
     }
 
     // ============================================================
+    //  EXECUTE — XCHG with one memory-resident operand (MDR)
+    // ============================================================
+
+    public MicroOperation xchg_reg_mdr(String dst) {
+        return new MicroOperation(
+            MicroOperationType.REG_LOAD_REG,
+            dst + " <-> MDR",
+            () -> {
+                controlBus.clearAll();
+                int tmp = reg(dst).output();
+                reg(dst).load(mdr.output());
+                mdr.load(tmp);
+                dataBus.drive(tmp);
+            },
+            dst, "MDR", MicroOperation.BusActivity.DATA_BUS
+        );
+    }
+
+    // ============================================================
     //  EXECUTE — PUSH (SP-=2, Memory[SS:SP] <- reg)
     // ============================================================
 
@@ -638,6 +826,26 @@ public class MicroOperationExecutor {
         );
     }
 
+    /** PUSH of a memory operand: the value must already be staged into MDR. */
+    public MicroOperation push_mdr() {
+        return new MicroOperation(
+            MicroOperationType.SP_DECREMENT,
+            "SP <- SP-2 ; Mem[SS:SP] <- MDR",
+            () -> {
+                controlBus.clearAll();
+                reg("SP").load(reg("SP").output() - 2);
+                int physAddr = computePhysical("SS", reg("SP").output());
+                controlBus.assert_(ControlSignal.MAR_LOAD);
+                mar.load(physAddr);
+                addressBus.drive(physAddr);
+                controlBus.assert_(ControlSignal.MEMORY_WRITE);
+                dataBus.drive(mdr.output());
+                memory.busWrite();
+            },
+            "Mem[SS:SP]", "MDR", MicroOperation.BusActivity.ADDRESS_AND_DATA
+        );
+    }
+
     // ============================================================
     //  EXECUTE — POP (reg <- Memory[SS:SP], SP+=2)
     // ============================================================
@@ -660,6 +868,27 @@ public class MicroOperationExecutor {
                 reg("SP").load(reg("SP").output() + 2);
             },
             dst, "Mem[SS:SP]", MicroOperation.BusActivity.ADDRESS_AND_DATA
+        );
+    }
+
+    /** POP into MDR (destination is memory): the caller stores MDR afterward. */
+    public MicroOperation pop_to_mdr() {
+        return new MicroOperation(
+            MicroOperationType.SP_INCREMENT,
+            "MDR <- Mem[SS:SP] ; SP <- SP+2",
+            () -> {
+                controlBus.clearAll();
+                int physAddr = computePhysical("SS", reg("SP").output());
+                controlBus.assert_(ControlSignal.MAR_LOAD);
+                mar.load(physAddr);
+                addressBus.drive(physAddr);
+                controlBus.assert_(ControlSignal.MEMORY_READ);
+                controlBus.assert_(ControlSignal.MDR_LOAD);
+                memory.busRead();
+                mdr.load(dataBus.read());
+                reg("SP").load(reg("SP").output() + 2);
+            },
+            "MDR", "Mem[SS:SP]", MicroOperation.BusActivity.ADDRESS_AND_DATA
         );
     }
 
@@ -792,6 +1021,27 @@ public class MicroOperationExecutor {
                 mdr.load(dataBus.read());
                 pc.load(mdr.output());
                 reg("SP").load(reg("SP").output() + 2);
+            },
+            "IP", "Mem[SS:SP]", MicroOperation.BusActivity.ADDRESS_AND_DATA
+        );
+    }
+
+    /** RET imm16: pop the return address, then discard imm16 extra bytes of arguments. */
+    public MicroOperation ret_imm(int imm) {
+        return new MicroOperation(
+            MicroOperationType.SP_INCREMENT,
+            "POP IP ; SP <- SP+2+" + imm,
+            () -> {
+                controlBus.clearAll();
+                int physAddr = computePhysical("SS", reg("SP").output());
+                mar.load(physAddr);
+                addressBus.drive(physAddr);
+                controlBus.assert_(ControlSignal.MEMORY_READ);
+                controlBus.assert_(ControlSignal.MDR_LOAD);
+                memory.busRead();
+                mdr.load(dataBus.read());
+                pc.load(mdr.output());
+                reg("SP").load((reg("SP").output() + 2 + imm) & 0xFFFF);
             },
             "IP", "Mem[SS:SP]", MicroOperation.BusActivity.ADDRESS_AND_DATA
         );

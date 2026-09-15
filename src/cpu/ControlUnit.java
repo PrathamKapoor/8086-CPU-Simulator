@@ -200,27 +200,53 @@ public class ControlUnit {
             case XOR -> addAluOp(ops, instr, MicroOperationType.ALU_XOR, ALU.Operation.XOR);
 
             case CMP -> {
-                if (instr.getFormat() == InstructionFormat.REG_IMM)
-                    ops.add(executor.alu_cmp_imm(instr.getDestReg(), instr.getImmediate()));
-                else
-                    ops.add(executor.alu_cmp(instr.getDestReg(), instr.getSrcReg()));
+                switch (instr.getFormat()) {
+                    case REG_IMM, REG_IMM8 -> ops.add(executor.alu_cmp_imm(instr.getDestReg(), instr.getImmediate()));
+                    case REG_REG_INDIRECT -> {
+                        ops.add(executor.load_effective_addr(computeEffectiveAddr(instr)));
+                        ops.add(executor.load_step2_MDR());
+                        ops.add(executor.alu_cmp_reg_mdr(instr.getDestReg()));
+                    }
+                    case REG_INDIRECT_REG -> {
+                        ops.add(executor.load_effective_addr(computeEffectiveAddr(instr)));
+                        ops.add(executor.load_step2_MDR());
+                        ops.add(executor.alu_cmp_mdr_reg(instr.getSrcReg()));
+                    }
+                    case REG_INDIRECT_IMM -> {
+                        ops.add(executor.load_effective_addr(computeEffectiveAddr(instr)));
+                        ops.add(executor.load_step2_MDR());
+                        ops.add(executor.alu_cmp_mdr_imm(instr.getImmediate()));
+                    }
+                    default -> ops.add(executor.alu_cmp(instr.getDestReg(), instr.getSrcReg()));
+                }
             }
 
             case TEST -> {
-                if (instr.getFormat() == InstructionFormat.REG_IMM)
-                    ops.add(executor.alu_test_imm(instr.getDestReg(), instr.getImmediate()));
-                else
-                    ops.add(executor.alu_test(instr.getDestReg(), instr.getSrcReg()));
+                switch (instr.getFormat()) {
+                    case REG_IMM, REG_IMM8 -> ops.add(executor.alu_test_imm(instr.getDestReg(), instr.getImmediate()));
+                    case REG_REG_INDIRECT -> {
+                        ops.add(executor.load_effective_addr(computeEffectiveAddr(instr)));
+                        ops.add(executor.load_step2_MDR());
+                        ops.add(executor.alu_test_reg_mdr(instr.getDestReg()));
+                    }
+                    case REG_INDIRECT_REG -> {
+                        ops.add(executor.load_effective_addr(computeEffectiveAddr(instr)));
+                        ops.add(executor.load_step2_MDR());
+                        ops.add(executor.alu_test_mdr_reg(instr.getSrcReg()));
+                    }
+                    case REG_INDIRECT_IMM -> {
+                        ops.add(executor.load_effective_addr(computeEffectiveAddr(instr)));
+                        ops.add(executor.load_step2_MDR());
+                        ops.add(executor.alu_test_mdr_imm(instr.getImmediate()));
+                    }
+                    default -> ops.add(executor.alu_test(instr.getDestReg(), instr.getSrcReg()));
+                }
             }
 
-            case INC -> ops.add(executor.alu_unary(MicroOperationType.ALU_INC,
-                    ALU.Operation.INC, instr.getDestReg()));
-            case DEC -> ops.add(executor.alu_unary(MicroOperationType.ALU_DEC,
-                    ALU.Operation.DEC, instr.getDestReg()));
-            case NEG -> ops.add(executor.alu_unary(MicroOperationType.ALU_NEG,
-                    ALU.Operation.NEG, instr.getDestReg()));
-            case NOT -> ops.add(executor.alu_unary(MicroOperationType.ALU_NOT,
-                    ALU.Operation.NOT, instr.getDestReg()));
+            case INC -> addUnaryOp(ops, instr, MicroOperationType.ALU_INC, ALU.Operation.INC);
+            case DEC -> addUnaryOp(ops, instr, MicroOperationType.ALU_DEC, ALU.Operation.DEC);
+            case NEG -> addUnaryOp(ops, instr, MicroOperationType.ALU_NEG, ALU.Operation.NEG);
+            case NOT -> addUnaryOp(ops, instr, MicroOperationType.ALU_NOT, ALU.Operation.NOT);
 
             case MUL -> ops.add(executor.mul_reg(instr.getDestReg()));
             case IMUL -> ops.add(executor.imul_reg(instr.getDestReg()));
@@ -250,7 +276,10 @@ public class ControlUnit {
             // ============================================================
             case JMP -> ops.add(executor.jmp(instr.getAddress()));
             case CALL -> ops.add(executor.call(instr.getAddress()));
-            case RET -> ops.add(executor.ret());
+            case RET -> {
+                if (instr.getFormat() == InstructionFormat.IMM_ONLY) ops.add(executor.ret_imm(instr.getImmediate()));
+                else ops.add(executor.ret());
+            }
             case RETF -> ops.add(executor.ret()); // simplified
 
             // Conditional jumps — all use jcc()
@@ -300,20 +329,29 @@ public class ControlUnit {
             // ============================================================
             case PUSH -> {
                 // Parser emits PUSH-imm as REG_IMM and PUSH-seg as SEG_REG.
+                // A memory operand is REG_REG_INDIRECT with no dest register set.
                 if (instr.getFormat() == InstructionFormat.IMM_ONLY
                         || instr.getFormat() == InstructionFormat.REG_IMM)
                     ops.add(executor.push_imm(instr.getImmediate()));
                 else if (instr.getFormat() == InstructionFormat.SEG_REG_ONLY
                         || instr.getFormat() == InstructionFormat.SEG_REG)
                     ops.add(executor.push_seg(instr.getDestReg()));
-                else
+                else if (instr.getFormat() == InstructionFormat.REG_REG_INDIRECT && instr.getDestReg() == null) {
+                    ops.add(executor.load_effective_addr(computeEffectiveAddr(instr)));
+                    ops.add(executor.load_step2_MDR());
+                    ops.add(executor.push_mdr());
+                } else
                     ops.add(executor.push_reg(instr.getDestReg()));
             }
             case POP -> {
                 if (instr.getFormat() == InstructionFormat.SEG_REG_ONLY
                         || instr.getFormat() == InstructionFormat.SEG_REG)
                     ops.add(executor.pop_seg(instr.getDestReg()));
-                else
+                else if (instr.getFormat() == InstructionFormat.REG_REG_INDIRECT && instr.getDestReg() == null) {
+                    ops.add(executor.pop_to_mdr());
+                    ops.add(executor.load_effective_addr(computeEffectiveAddr(instr)));
+                    ops.add(executor.store_step3_write());
+                } else
                     ops.add(executor.pop_reg(instr.getDestReg()));
             }
 
@@ -342,18 +380,25 @@ public class ControlUnit {
             //  XCHG — reg, reg (swap two registers)
             // ============================================================
             case XCHG -> {
-                String dst = instr.getDestReg();
-                String src = instr.getSrcReg();
-                ops.add(new microoperation.MicroOperation(
-                    microoperation.MicroOperationType.REG_LOAD_REG,
-                    dst + " <-> " + src,
-                    () -> {
-                        int tmp = reg(dst).output();
-                        reg(dst).load(reg(src).output());
-                        reg(src).load(tmp);
-                    },
-                    dst, src, microoperation.MicroOperation.BusActivity.DATA_BUS
-                ));
+                if (instr.getFormat() == InstructionFormat.REG_REG_INDIRECT) {
+                    ops.add(executor.load_effective_addr(computeEffectiveAddr(instr)));
+                    ops.add(executor.load_step2_MDR());
+                    ops.add(executor.xchg_reg_mdr(instr.getDestReg()));
+                    ops.add(executor.store_step3_write());
+                } else {
+                    String dst = instr.getDestReg();
+                    String src = instr.getSrcReg();
+                    ops.add(new microoperation.MicroOperation(
+                        microoperation.MicroOperationType.REG_LOAD_REG,
+                        dst + " <-> " + src,
+                        () -> {
+                            int tmp = reg(dst).output();
+                            reg(dst).load(reg(src).output());
+                            reg(src).load(tmp);
+                        },
+                        dst, src, microoperation.MicroOperation.BusActivity.DATA_BUS
+                    ));
+                }
             }
 
             // ============================================================
@@ -529,10 +574,42 @@ public class ControlUnit {
 
     private void addAluOp(List<MicroOperation> ops, Instruction instr,
                           MicroOperationType type, ALU.Operation aluOp) {
-        if (instr.getFormat() == InstructionFormat.REG_IMM)
-            ops.add(executor.alu_imm(type, aluOp, instr.getDestReg(), instr.getImmediate()));
-        else
-            ops.add(executor.alu_binary(type, aluOp, instr.getDestReg(), instr.getSrcReg()));
+        switch (instr.getFormat()) {
+            case REG_IMM, REG_IMM8 -> ops.add(executor.alu_imm(type, aluOp, instr.getDestReg(), instr.getImmediate()));
+            case REG_REG_INDIRECT -> {
+                // dest is a register, src is memory (e.g. ADD AX, [BX])
+                ops.add(executor.load_effective_addr(computeEffectiveAddr(instr)));
+                ops.add(executor.load_step2_MDR());
+                ops.add(executor.alu_reg_mdr(type, aluOp, instr.getDestReg()));
+            }
+            case REG_INDIRECT_REG -> {
+                // dest is memory, src is a register (e.g. ADD [BX], AX)
+                ops.add(executor.load_effective_addr(computeEffectiveAddr(instr)));
+                ops.add(executor.load_step2_MDR());
+                ops.add(executor.alu_mdr_reg(type, aluOp, instr.getSrcReg()));
+                ops.add(executor.store_step3_write());
+            }
+            case REG_INDIRECT_IMM -> {
+                // dest is memory, operand is an immediate (e.g. ADD WORD [BX], 5)
+                ops.add(executor.load_effective_addr(computeEffectiveAddr(instr)));
+                ops.add(executor.load_step2_MDR());
+                ops.add(executor.alu_mdr_imm(type, aluOp, instr.getImmediate()));
+                ops.add(executor.store_step3_write());
+            }
+            default -> ops.add(executor.alu_binary(type, aluOp, instr.getDestReg(), instr.getSrcReg()));
+        }
+    }
+
+    private void addUnaryOp(List<MicroOperation> ops, Instruction instr,
+                            MicroOperationType type, ALU.Operation aluOp) {
+        if (instr.getFormat() == InstructionFormat.ADDR_ONLY) {
+            ops.add(executor.load_effective_addr(computeEffectiveAddr(instr)));
+            ops.add(executor.load_step2_MDR());
+            ops.add(executor.alu_unary_mdr(type, aluOp));
+            ops.add(executor.store_step3_write());
+        } else {
+            ops.add(executor.alu_unary(type, aluOp, instr.getDestReg()));
+        }
     }
 
     private boolean isMemoryRef(String s) {
