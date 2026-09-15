@@ -15,6 +15,11 @@ import simulator.experiment.BenchmarkCatalog;
 import simulator.experiment.ExperimentRunner;
 import simulator.profiler.TimingModel;
 import simulator.profiler.PerformanceProfiler;
+import machinecode.CanonicalDisassembler;
+import machinecode.DecodedInstruction;
+import machinecode.EncodedInstruction;
+import machinecode.Intel8086Decoder;
+import machinecode.Intel8086Encoder;
 
 /**
  * MainSimulator — CLI entry point for headless (no-GUI) execution.
@@ -49,6 +54,15 @@ public class MainSimulator {
         }
         if (args.length > 0 && args[0].equals("--benchmark")) {
             runBenchmarks(args);
+            return;
+        }
+        if (args.length > 0 && (args[0].equals("--encode") || args[0].equals("--decode") || args[0].equals("--disassemble"))) {
+            runMachineCodeCommand(args);
+            return;
+        }
+        if (args.length > 0 && args[0].startsWith("--") && !args[0].startsWith("--timing=")) {
+            System.err.println("Unknown option: " + args[0]);
+            System.exit(2);
             return;
         }
         System.out.println("==================================================");
@@ -189,6 +203,62 @@ public class MainSimulator {
         if (json) System.out.println("[" + results.stream().map(r -> r.toJson()).collect(java.util.stream.Collectors.joining(",")) + "]");
         else results.forEach(r -> System.out.println(r.definition().name() + " architectural=" + r.architecturalResultMatches() + " " + r.metrics().toJson()));
         if (results.stream().anyMatch(r -> !r.architecturalResultMatches())) System.exit(1);
+    }
+
+    private static void runMachineCodeCommand(String[] args) {
+        if (args.length < 2) {
+            System.err.println(args[0] + " requires an assembly or hexadecimal argument");
+            System.exit(2);
+            return;
+        }
+        try {
+            boolean json = has(args, "--json");
+            String assembly;
+            byte[] bytes;
+            int length;
+            if (args[0].equals("--encode")) {
+                Instruction instruction = new InstructionParser().parseLine(args[1]);
+                EncodedInstruction encoded = new Intel8086Encoder().encode(instruction, 0);
+                assembly = instruction.getRawText();
+                bytes = encoded.bytes();
+                length = encoded.length();
+            } else {
+                bytes = parseHex(args[1]);
+                DecodedInstruction decoded = new Intel8086Decoder().decode(bytes, 0);
+                assembly = args[0].equals("--disassemble")
+                    ? new CanonicalDisassembler().disassemble(decoded) : decoded.instruction().getRawText();
+                bytes = decoded.rawBytes();
+                length = decoded.length();
+            }
+            if (json) {
+                System.out.println("{\"assembly\":\"" + jsonEscape(assembly) + "\",\"bytes\":\"" + toHex(bytes) + "\",\"length\":" + length + "}");
+            } else {
+                System.out.println(assembly + " -> " + toHex(bytes) + " (" + length + " bytes)");
+            }
+        } catch (Exception exception) {
+            System.err.println("Machine-code error: " + exception.getMessage());
+            System.exit(2);
+        }
+    }
+
+    private static byte[] parseHex(String value) {
+        String compact = value.replaceAll("[\\s_]", "");
+        if (compact.isEmpty() || (compact.length() & 1) != 0 || !compact.matches("[0-9A-Fa-f]+")) {
+            throw new IllegalArgumentException("expected an even number of hexadecimal digits");
+        }
+        byte[] bytes = new byte[compact.length() / 2];
+        for (int i = 0; i < bytes.length; i++) bytes[i] = (byte) Integer.parseInt(compact.substring(i * 2, i * 2 + 2), 16);
+        return bytes;
+    }
+
+    private static String toHex(byte[] bytes) {
+        return java.util.stream.IntStream.range(0, bytes.length)
+            .mapToObj(index -> String.format("%02X", bytes[index] & 0xFF))
+            .collect(java.util.stream.Collectors.joining(" "));
+    }
+
+    private static String jsonEscape(String value) {
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private static TimingModel parseTiming(String[] args) {
