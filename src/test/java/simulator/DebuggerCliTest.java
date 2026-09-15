@@ -67,6 +67,21 @@ class DebuggerCliTest {
         assertTrue(traceLine.contains("\"INSTRUCTION_START\""));
     }
 
+    @Test void traceSaveAndLoadRoundTripsForInspectionOnly() throws java.io.IOException {
+        DebugSession session = DebugSession.forSourceProgram(new InstructionParser().parseProgram("MOV AX, 1\nHLT\n"));
+        java.nio.file.Path traceFile = java.nio.file.Files.createTempFile("phase5-trace", ".json");
+        try {
+            String out = run(session, List.of("trace", "step", "tracesave " + traceFile, "traceload " + traceFile));
+            assertTrue(out.contains("saved"));
+            assertTrue(out.contains("REPLAY FROM TRACE is not supported"));
+            assertTrue(out.contains("INSTRUCTION_START"));
+            String savedJson = java.nio.file.Files.readString(traceFile);
+            assertTrue(savedJson.startsWith("[") && savedJson.endsWith("]"));
+        } finally {
+            java.nio.file.Files.deleteIfExists(traceFile);
+        }
+    }
+
     @Test void memoryAndStackCommands() {
         DebugSession session = DebugSession.forSourceProgram(new InstructionParser().parseProgram(
             "MOV SP, 0100H\nMOV AX, 1234H\nPUSH AX\nHLT\n"));

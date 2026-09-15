@@ -146,6 +146,28 @@ public final class DebuggerCli {
             case "state" -> printState(out, session, false);
             case "statejson" -> printState(out, session, true);
             case "tracejson" -> out.println("[" + String.join(",", session.trace().stream().map(e -> e.toJson()).toList()) + "]");
+            case "tracesave" -> {
+                String json = "[" + String.join(",", session.trace().stream().map(e -> e.toJson()).toList()) + "]";
+                try {
+                    Files.writeString(Path.of(rest.trim()), json, StandardCharsets.UTF_8);
+                    out.println("saved " + session.trace().size() + " trace event(s) to " + rest.trim());
+                } catch (IOException e) {
+                    out.println("tracesave failed: " + e.getMessage());
+                }
+            }
+            case "traceload" -> {
+                // Trace files are for later INSPECTION, not re-execution: this simulator's
+                // supported "replay" mechanism is snapshot-based (checkpoint/restore, see
+                // docs/verification/phase-5-debugger-design-note.md), never reconstructed
+                // from a trace log. Loading a trace here prints it back for review.
+                try {
+                    String json = Files.readString(Path.of(rest.trim()), StandardCharsets.UTF_8);
+                    out.println("REPLAY FROM TRACE is not supported (this is inspection-only); loaded trace:");
+                    out.println(json);
+                } catch (IOException e) {
+                    out.println("traceload failed: " + e.getMessage());
+                }
+            }
             default -> out.println("unknown command: " + cmd);
         }
         return true;
