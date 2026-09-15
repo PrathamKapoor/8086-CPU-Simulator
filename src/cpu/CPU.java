@@ -13,6 +13,8 @@ import microoperation.MicroOperationType;
 import cpu.biu.BiuTickResult;
 import cpu.microarchitecture.*;
 import simulator.profiler.TimingModel;
+import machinecode.DecodedInstruction;
+import machinecode.Intel8086Decoder;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -81,6 +83,9 @@ public class CPU {
 
     // ---- Program state ------------------------------------------------------
     private List<Instruction>    program     = new ArrayList<>();
+    private boolean machineCodeProgram = false;
+    private byte[] machineCode = new byte[0];
+    private List<Integer> machineInstructionOffsets = new ArrayList<>();
     private List<MicroOperation> microOpBatch = new ArrayList<>();
     private int  batchIndex     = 0;
     private long totalCyclesRun = 0;
@@ -153,6 +158,9 @@ public class CPU {
     public void loadProgram(List<Instruction> instructions) {
         reset();
         this.program = new ArrayList<>(instructions);
+        this.machineCodeProgram = false;
+        this.machineCode = new byte[0];
+        this.machineInstructionOffsets = new ArrayList<>();
 
         // Write instruction indices into memory for realistic fetch
         for (int i = 0; i < instructions.size(); i++) {
@@ -174,6 +182,40 @@ public class CPU {
         cycleTrace.clear();
         timedInstructionIndex = -1;
 
+        halted = false;
+        primeNextInstruction();
+    }
+
+    /**
+     * Load a real 8086 byte stream.  The decoder creates the same semantic
+     * Instruction objects used by the source-token path; execution still goes
+     * through this CPU's existing ControlUnit and micro-operation executor.
+     */
+    public void loadMachineCode(byte[] bytes) {
+        if (bytes == null) throw new IllegalArgumentException("machine-code bytes must not be null");
+        reset();
+        Intel8086Decoder machineDecoder = new Intel8086Decoder();
+        List<Instruction> decoded = new ArrayList<>();
+        List<Integer> offsets = new ArrayList<>();
+        int offset = 0;
+        while (offset < bytes.length) {
+            DecodedInstruction next = machineDecoder.decode(bytes, offset);
+            decoded.add(next.instruction());
+            offsets.add(offset);
+            offset = next.nextOffset();
+        }
+        this.program = translateMachineControlTargets(decoded, offsets);
+        this.machineCodeProgram = true;
+        this.machineCode = java.util.Arrays.copyOf(bytes, bytes.length);
+        this.machineInstructionOffsets = offsets;
+        for (int i = 0; i < bytes.length; i++) memory.directWrite(i, bytes[i] & 0xFF);
+
+        biu.reset();
+        biu.getFetchState().setNextFetchOffset(0);
+        eu.beginDecode();
+        stallCycles = queueFlushes = bytesFetched = bytesConsumed = maxQueueOccupancy = totalOverlapCycles = busActiveCycles = biuFetchEvents = 0;
+        cycleTrace.clear();
+        timedInstructionIndex = -1;
         halted = false;
         primeNextInstruction();
     }
@@ -282,8 +324,9 @@ public class CPU {
         int index = timedInstructionIndex;
         MicroOperation op = microOpBatch.get(batchIndex);
         List<MicroarchitectureEvent> events = new ArrayList<>();
-        if (start && biu.getPrefetchQueue().isEmpty()) {
-            BiuTickResult fetched = biu.tick(true, program.size());
+        int requiredBytes = machineCodeProgram ? instructionByteLength(index) : 1;
+        if (start && biu.getPrefetchQueue().size() < requiredBytes) {
+            BiuTickResult fetched = biu.tick(true, fetchLength());
             fetchEvents(events, fetched);
             events.add(new MicroarchitectureEvent(totalCyclesRun + 1, MicroarchitectureEventType.QUEUE_EMPTY, -1, -1, 0));
             events.add(new MicroarchitectureEvent(totalCyclesRun + 1, MicroarchitectureEventType.EU_STALL, -1, -1, 0));
@@ -293,7 +336,7 @@ public class CPU {
             return null;
         }
         boolean memoryOperation = usesExternalMemory(op.getType());
-        BiuTickResult fetched = biu.tick(!memoryOperation, program.size());
+        BiuTickResult fetched = biu.tick(!memoryOperation, fetchLength());
         fetchEvents(events, fetched);
         BusOwner owner = memoryOperation ? BusOwner.EU_MEMORY : (fetched.fetched() ? BusOwner.BIU_FETCH : BusOwner.NONE);
         if (memoryOperation) {
@@ -302,8 +345,10 @@ public class CPU {
             if (fetched.waitingForBus()) events.add(new MicroarchitectureEvent(totalCyclesRun + 1, MicroarchitectureEventType.BIU_STALL, -1, -1, 0));
         }
         if (start) {
-            int token = eu.consumeByte(); bytesConsumed++;
-            events.add(new MicroarchitectureEvent(totalCyclesRun + 1, MicroarchitectureEventType.QUEUE_POP, -1, token, 1));
+            for (int consumed = 0; consumed < requiredBytes; consumed++) {
+                int token = eu.consumeByte(); bytesConsumed++;
+                events.add(new MicroarchitectureEvent(totalCyclesRun + 1, MicroarchitectureEventType.QUEUE_POP, -1, token, 1));
+            }
             events.add(new MicroarchitectureEvent(totalCyclesRun + 1, MicroarchitectureEventType.EU_START, -1, index, 1));
         }
         boolean retired = batchIndex + 1 >= microOpBatch.size() || op.getType() == MicroOperationType.HALT;
@@ -312,7 +357,7 @@ public class CPU {
             events.add(new MicroarchitectureEvent(totalCyclesRun, MicroarchitectureEventType.EU_COMPLETE, -1, index, 1));
             events.add(new MicroarchitectureEvent(totalCyclesRun, MicroarchitectureEventType.INSTRUCTION_RETIRE, -1, index, 1));
             if (pc.output() != ((index + 1) & 0xFFFF)) {
-                int flushed = biu.getPrefetchQueue().size(); biu.flushTo(pc.output()); queueFlushes++;
+                int flushed = biu.getPrefetchQueue().size(); biu.flushTo(fetchOffsetForInstruction(pc.output())); queueFlushes++;
                 events.add(new MicroarchitectureEvent(totalCyclesRun, MicroarchitectureEventType.CONTROL_TRANSFER, -1, pc.output(), 1));
                 events.add(new MicroarchitectureEvent(totalCyclesRun, MicroarchitectureEventType.QUEUE_FLUSH, -1, -1, flushed));
             }
@@ -389,6 +434,9 @@ public class CPU {
         biu.reset();
         stallCycles = queueFlushes = bytesFetched = bytesConsumed = maxQueueOccupancy = totalOverlapCycles = busActiveCycles = biuFetchEvents = 0;
         program        = new ArrayList<>();
+        machineCodeProgram = false;
+        machineCode = new byte[0];
+        machineInstructionOffsets = new ArrayList<>();
         controlUnit.setCurrentPhase("IDLE");
     }
 
@@ -409,6 +457,63 @@ public class CPU {
 
         Instruction instr = program.get(instrIdx);
         microOpBatch.addAll(controlUnit.generateMicroOps(instr));
+    }
+
+    private int fetchLength() { return machineCodeProgram ? machineCode.length : program.size(); }
+
+    private int instructionByteLength(int instructionIndex) {
+        if (!machineCodeProgram) return 1;
+        if (instructionIndex < 0 || instructionIndex >= machineInstructionOffsets.size()) return 0;
+        int start = machineInstructionOffsets.get(instructionIndex);
+        int end = instructionIndex + 1 < machineInstructionOffsets.size()
+            ? machineInstructionOffsets.get(instructionIndex + 1) : machineCode.length;
+        return end - start;
+    }
+
+    private int fetchOffsetForInstruction(int instructionIndex) {
+        if (!machineCodeProgram) return instructionIndex;
+        if (instructionIndex < 0 || instructionIndex >= machineInstructionOffsets.size()) return machineCode.length;
+        return machineInstructionOffsets.get(instructionIndex);
+    }
+
+    /** Converts decoded byte-relative targets to the existing ControlUnit's instruction-index convention. */
+    private static List<Instruction> translateMachineControlTargets(List<Instruction> decoded, List<Integer> offsets) {
+        List<Instruction> translated = new ArrayList<>(decoded.size());
+        for (Instruction instruction : decoded) {
+            if (!usesMachineRelativeTarget(instruction.getOpcode())) {
+                translated.add(instruction);
+                continue;
+            }
+            int targetOffset = instruction.getAddress();
+            int targetIndex = offsets.indexOf(targetOffset);
+            if (targetIndex < 0) {
+                throw new IllegalArgumentException("machine-code control transfer targets non-instruction offset " + targetOffset);
+            }
+            translated.add(copyWithAddress(instruction, targetIndex));
+        }
+        return translated;
+    }
+
+    private static boolean usesMachineRelativeTarget(instruction.Opcode opcode) {
+        return opcode == instruction.Opcode.JMP || opcode == instruction.Opcode.CALL
+            || opcode == instruction.Opcode.JZ_JE || opcode == instruction.Opcode.JNZ_JNE
+            || opcode == instruction.Opcode.JC_JB || opcode == instruction.Opcode.JNC_JNB
+            || opcode == instruction.Opcode.JO || opcode == instruction.Opcode.JNO
+            || opcode == instruction.Opcode.JS || opcode == instruction.Opcode.JNS
+            || opcode == instruction.Opcode.JP_JPE || opcode == instruction.Opcode.JNP_JPO
+            || opcode == instruction.Opcode.JL_JNGE || opcode == instruction.Opcode.JNL_JGE
+            || opcode == instruction.Opcode.JLE_JNG || opcode == instruction.Opcode.JNLE_JG
+            || opcode == instruction.Opcode.JBE_JNA || opcode == instruction.Opcode.JNBE_JA
+            || opcode == instruction.Opcode.LOOP || opcode == instruction.Opcode.LOOPZ
+            || opcode == instruction.Opcode.LOOPNZ || opcode == instruction.Opcode.JCXZ;
+    }
+
+    private static Instruction copyWithAddress(Instruction instruction, int address) {
+        return new Instruction.Builder(instruction.getOpcode())
+            .format(instruction.getFormat()).dest(instruction.getDestReg()).src(instruction.getSrcReg())
+            .imm(instruction.getImmediate()).addr(address).raw(instruction.getRawText())
+            .baseReg(instruction.getBaseReg()).indexReg(instruction.getIndexReg()).disp(instruction.getDisplacement())
+            .segOverride(instruction.getSegmentOverride()).encoded(instruction.getEncoded()).prefix(instruction.getPrefix()).build();
     }
 
     // =========================================================================
@@ -448,6 +553,8 @@ public class CPU {
     public ControlUnit           getControlUnit()            { return controlUnit; }
     public InstructionDecoder    getDecoder()                { return decoder; }
     public List<Instruction>     getProgram()                { return program; }
+    public boolean               isMachineCodeProgram()      { return machineCodeProgram; }
+    public byte[]                getMachineCode()            { return java.util.Arrays.copyOf(machineCode, machineCode.length); }
     public List<MicroOperation>  getExecutedTrace()          { return executedTrace; }
     public int                   getBatchIndex()             { return batchIndex; }
     public boolean               isHalted()                  { return halted; }

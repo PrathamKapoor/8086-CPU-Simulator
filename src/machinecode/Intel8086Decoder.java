@@ -33,6 +33,12 @@ public final class Intel8086Decoder {
                      0x20, 0x21, 0x22, 0x23, 0x28, 0x29, 0x2A, 0x2B,
                      0x30, 0x31, 0x32, 0x33, 0x38, 0x39, 0x3A, 0x3B -> decodeAluModRm(cursor, opcode);
                 case 0x80, 0x81 -> decodeAluImmediate(cursor, opcode);
+                case 0xEB -> decodeRelative(cursor, Opcode.JMP, 2, 1, offset);
+                case 0xE9 -> decodeRelative(cursor, Opcode.JMP, 3, 2, offset);
+                case 0xE8 -> decodeRelative(cursor, Opcode.CALL, 3, 2, offset);
+                case 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77,
+                     0x78, 0x79, 0x7A, 0x7B, 0x7C, 0x7D, 0x7E, 0x7F,
+                     0xE0, 0xE1, 0xE2, 0xE3 -> decodeRelative(cursor, controlOpcode(opcode), 2, 1, offset);
                 default -> throw new DecodeException("Unsupported 8086 opcode 0x" + String.format("%02X", opcode) + " at offset " + offset);
             };
         }
@@ -99,11 +105,29 @@ public final class Intel8086Decoder {
             .raw(semanticOpcode + " " + target + ", " + hex(immediate, byteWidth ? 2 : 4)).build();
     }
 
+    private Instruction decodeRelative(ByteCursor cursor, Opcode opcode, int length, int displacementBytes, int startOffset) {
+        int displacement = displacementBytes == 1 ? (byte) cursor.readU8() : (short) cursor.readU16LE();
+        int target = startOffset + length + displacement;
+        return new Instruction.Builder(opcode).format(InstructionFormat.REL_ONLY).addr(target)
+            .raw(opcode + " " + target).build();
+    }
+
     private static Opcode aluOpcode(int extension) {
         return switch (extension) {
             case 0 -> Opcode.ADD; case 1 -> Opcode.OR; case 2 -> Opcode.ADC; case 3 -> Opcode.SBB;
             case 4 -> Opcode.AND; case 5 -> Opcode.SUB; case 6 -> Opcode.XOR; case 7 -> Opcode.CMP;
             default -> throw new DecodeException("invalid ALU opcode extension: " + extension);
+        };
+    }
+
+    private static Opcode controlOpcode(int opcode) {
+        return switch (opcode) {
+            case 0x70 -> Opcode.JO; case 0x71 -> Opcode.JNO; case 0x72 -> Opcode.JC_JB; case 0x73 -> Opcode.JNC_JNB;
+            case 0x74 -> Opcode.JZ_JE; case 0x75 -> Opcode.JNZ_JNE; case 0x76 -> Opcode.JBE_JNA; case 0x77 -> Opcode.JNBE_JA;
+            case 0x78 -> Opcode.JS; case 0x79 -> Opcode.JNS; case 0x7A -> Opcode.JP_JPE; case 0x7B -> Opcode.JNP_JPO;
+            case 0x7C -> Opcode.JL_JNGE; case 0x7D -> Opcode.JNL_JGE; case 0x7E -> Opcode.JLE_JNG; case 0x7F -> Opcode.JNLE_JG;
+            case 0xE0 -> Opcode.LOOPNZ; case 0xE1 -> Opcode.LOOPZ; case 0xE2 -> Opcode.LOOP; case 0xE3 -> Opcode.JCXZ;
+            default -> throw new DecodeException("not an 8086 rel8 control-transfer opcode: 0x" + String.format("%02X", opcode));
         };
     }
 
