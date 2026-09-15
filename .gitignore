@@ -25,4 +25,8 @@
 .DS_Store
 Thumbs.db
 
-# No secrets, no .env exclusions needed (no .env files in repo)
+# Local configuration. The simulator currently requires no external secrets;
+# retain a future placeholder template if configuration is introduced.
+.env
+.env.*
+!.env.example
