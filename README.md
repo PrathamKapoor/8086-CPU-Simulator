@@ -76,12 +76,27 @@ java -cp target/cpu-simulator.jar simulator.MainSimulator --benchmark --json
 
 ## Phase 4 machine-code tooling
 
-The machine-code layer currently supports a tested, growing 8086 subset:
-canonical `MOV` forms, register/immediate arithmetic and logic (`ADD`, `ADC`,
-`SUB`, `SBB`, `AND`, `OR`, `XOR`, `CMP`), relative `JMP`, `CALL`, conditional
-jumps and loop forms, plus the tested fixed-opcode, flag, adjust, interrupt and
-string forms. Unsupported forms fail explicitly; they are never emitted as
-invented opcodes or decoded as `NOP`.
+The machine-code layer supports a tested, honestly-scoped 8086 subset:
+`MOV` (register, immediate, memory, accumulator short forms, segment
+registers), arithmetic/logic (`ADD`, `ADC`, `SUB`, `SBB`, `AND`, `OR`, `XOR`,
+`CMP`, `TEST`) across register, immediate and memory operands, `XCHG`
+(including memory), `INC`/`DEC`/`NOT`/`NEG` (register and, for `INC`/`DEC`,
+word memory), shift/rotate by literal 1, `MUL`/`IMUL`/`DIV`/`IDIV`,
+`LEA`/`LDS`/`LES`, `IN`/`OUT`, `PUSH`/`POP` (register, segment register and
+memory), relative `JMP`/`CALL`/`RET` (including `RET imm16`), conditional
+jumps and loop forms, `INT`/`INT3`/`INTO`/`IRET`, the fixed flag/adjust/string
+forms, and `REP`/`REPNE`/segment-override prefixes.
+
+Legal 8086 encodings that stay unsupported are rejected with a typed error
+and documented with a reason in
+[`docs/verification/phase-4-8086-coverage-matrix.md`](docs/verification/phase-4-8086-coverage-matrix.md)
+— mainly forms this simulator's control-transfer model (indexed, not truly
+address-based) or execution engine (no bus arbitration, no coprocessor
+state, shift count read at encode time rather than from CL) cannot execute
+correctly: far/indirect `JMP`/`CALL`, `RETF imm16`, shift-by-CL, `LOCK`,
+`ESC`, and a few narrow memory-operand forms (byte `INC`/`DEC`,
+`MUL`/`DIV`-family). Unsupported forms fail explicitly; they are never
+emitted as invented opcodes or decoded as `NOP`.
 
 ```bash
 java -cp target/cpu-simulator.jar simulator.MainSimulator --encode "MOV AX, BX" --json
