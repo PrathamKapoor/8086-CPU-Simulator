@@ -36,6 +36,7 @@ import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 import javafx.util.Duration;
 import microoperation.MicroOperation;
+import machinecode.Intel8086Decoder;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -69,6 +70,7 @@ public class MainGUI extends Application {
     private TableView<KeyValueRow> memoryTable;
     private TableView<KeyValueRow> busTable;
     private TableView<KeyValueRow> flagsTable;
+    private TableView<KeyValueRow> machineCodeTable;
 
     private final ObservableList<String> queueItems = FXCollections.observableArrayList();
     private final ObservableList<String> executionItems = FXCollections.observableArrayList();
@@ -78,6 +80,7 @@ public class MainGUI extends Application {
     private final ObservableList<KeyValueRow> memoryRows = FXCollections.observableArrayList();
     private final ObservableList<KeyValueRow> busRows = FXCollections.observableArrayList();
     private final ObservableList<KeyValueRow> flagRows = FXCollections.observableArrayList();
+    private final ObservableList<KeyValueRow> machineCodeRows = FXCollections.observableArrayList();
 
     private Timeline runTimeline;
 
@@ -259,6 +262,7 @@ public class MainGUI extends Application {
         memoryTable = createKeyValueTable("Cell", "Value", memoryRows);
         busTable = createKeyValueTable("Bus", "State", busRows);
         flagsTable = createKeyValueTable("Flag", "Value", flagRows);
+        machineCodeTable = createKeyValueTable("Field", "Live pipeline value", machineCodeRows);
 
         tabs.getTabs().addAll(
             tab("Instruction Queue", queueList),
@@ -269,6 +273,7 @@ public class MainGUI extends Application {
             tab("Memory Table", memoryTable),
             tab("Bus State", busTable),
             tab("Flags", flagsTable),
+            tab("Machine Code", machineCodeTable),
             tab("ISA Reference", createInstructionReference())
         );
 
@@ -419,6 +424,7 @@ public class MainGUI extends Application {
         refreshMemoryTable();
         refreshBusTable(lastOp);
         refreshFlagsTable();
+        refreshMachineCodeInspection();
 
         architectureView.update(cpu, currentInstruction, lastOp, buildQueueValues(), statusLabel.getText());
     }
@@ -429,6 +435,10 @@ public class MainGUI extends Application {
         List<String> queue = new ArrayList<>();
         List<Instruction> program = cpu.getProgram();
         int[] tokens = cpu.getBiu().getPrefetchQueue().getContents();
+        if (cpu.isMachineCodeProgram()) {
+            for (int i = 0; i < 6; i++) queue.add(i < tokens.length ? String.format("%02X", tokens[i] & 0xFF) : "--");
+            return queue;
+        }
         for (int i = 0; i < 6; i++) {
             int index = i < tokens.length ? tokens[i] : -1;
             if (index >= 0 && index < program.size())
@@ -444,6 +454,28 @@ public class MainGUI extends Application {
             snapshot.cycle(), snapshot.biuState(), snapshot.euState(), snapshot.busOwner(), snapshot.queueOccupancy(), snapshot.microOperation())));
         timelineItems.setAll(rows);
         if (!rows.isEmpty()) microarchitectureTimeline.scrollTo(rows.size() - 1);
+    }
+
+    /** Uses the CPU's actual loaded bytes and decoded instruction stream; no UI-owned timing state exists. */
+    private void refreshMachineCodeInspection() {
+        machineCodeRows.clear();
+        if (!cpu.isMachineCodeProgram() || cpu.getMachineCode().length == 0) {
+            machineCodeRows.add(new KeyValueRow("Status", "Load machine-code bytes to inspect the live codec pipeline."));
+            return;
+        }
+        var decoded = new Intel8086Decoder().decodeAll(cpu.getMachineCode());
+        int index = Math.max(0, Math.min(valueOf("IP"), decoded.size() - 1));
+        MachineCodeInspection inspection = MachineCodeInspection.from(decoded.get(index));
+        machineCodeRows.addAll(
+            new KeyValueRow("Byte offset", String.valueOf(inspection.offset())),
+            new KeyValueRow("Encoded bytes", inspection.bytes()),
+            new KeyValueRow("Instruction length", String.valueOf(inspection.length())),
+            new KeyValueRow("Prefix", inspection.prefixes().isBlank() ? "--" : inspection.prefixes()),
+            new KeyValueRow("Opcode", inspection.opcode()),
+            new KeyValueRow("Decoded instruction", inspection.instruction()),
+            new KeyValueRow("Displacement", String.valueOf(inspection.displacement())),
+            new KeyValueRow("Immediate", String.valueOf(inspection.immediate())),
+            new KeyValueRow("BIU queue", String.join(" ", buildQueueValues())));
     }
 
     private void refreshRegisterTable() {
