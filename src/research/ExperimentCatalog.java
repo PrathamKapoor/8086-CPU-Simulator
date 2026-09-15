@@ -76,18 +76,30 @@ public final class ExperimentCatalog {
             Map.of("CX", 0)));
 
         c.put("queue-starvation", timed("queue-starvation",
-            "Eight consecutive one-byte INC instructions: each decodes and executes in roughly the time the BIU needs to fetch one byte, so the EU repeatedly outruns the prefetch queue.",
-            "MOV AX, 0000H\nINC AX\nINC AX\nINC AX\nINC AX\nINC AX\nINC AX\nINC AX\nINC AX\nHLT\n",
-            Map.of("AX", 8)));
+            "An eight-iteration DEC/JNZ countdown loop: JNZ's backward target lands inside bytes already fetched "
+            + "past, so every taken iteration flushes the prefetch queue to empty and the EU must wait for the BIU "
+            + "to refetch before it can decode DEC again -- measured euStallCycles=8 here versus 1 on an ordinary "
+            + "straight-line baseline (see sequential-alu), i.e. genuine repeated EU-outruns-BIU starvation rather "
+            + "than the one-off startup stall every program pays once.",
+            "MOV CX, 0008H\nback: DEC CX\nJNZ back\nHLT\n",
+            Map.of("CX", 0)));
 
         c.put("bus-contention", timed("bus-contention",
-            "Three memory writes immediately followed by three memory reads through the same pointer: the EU holds the bus for each memory access, repeatedly deferring the BIU's fetch.",
-            "MOV BX, 0100H\nMOV WORD [BX], 0001H\nMOV WORD [BX+2], 0002H\nMOV WORD [BX+4], 0003H\nMOV AX, [BX]\nMOV CX, [BX+2]\nMOV DX, [BX+4]\nHLT\n",
-            Map.of("AX", 1, "CX", 2, "DX", 3)));
+            "Six memory writes immediately followed by five memory reads, all through the same pointer: each memory "
+            + "micro-op gives the EU the bus for that cycle, so the BIU's fetch is deferred eleven times in a row -- "
+            + "measured biuStallCycles=12 here versus 2 on a shorter three-write/three-read version of the same "
+            + "pattern, confirming the metric actually tracks how many memory accesses contend for the bus rather "
+            + "than a fixed per-program constant.",
+            "MOV BX, 0100H\nMOV WORD [BX], 0001H\nMOV WORD [BX+2], 0002H\nMOV WORD [BX+4], 0003H\n"
+            + "MOV WORD [BX+6], 0004H\nMOV WORD [BX+8], 0005H\nMOV WORD [BX+10], 0006H\n"
+            + "MOV AX, [BX]\nMOV CX, [BX+2]\nMOV DX, [BX+4]\nMOV SI, [BX+6]\nMOV DI, [BX+8]\nHLT\n",
+            Map.of("AX", 1, "CX", 2, "DX", 3, "SI", 4, "DI", 5)));
 
         c.put("control-transfer-flush", timed("control-transfer-flush",
-            "A chain of four consecutive unconditional JMPs, each of which discards and refills the prefetch queue.",
-            "JMP l1\nl1: JMP l2\nl2: JMP l3\nl3: JMP l4\nl4: MOV AX, 9999H\nHLT\n",
+            "A chain of four unconditional JMPs, each skipping over an intervening NOP so its target is not simply "
+            + "the next instruction in program order -- IP genuinely departs from previousIndex+1, so each one is a "
+            + "real CONTROL_TRANSFER/QUEUE_FLUSH event, not a jump indistinguishable from falling through.",
+            "JMP l1\nNOP\nl1: JMP l2\nNOP\nl2: JMP l3\nNOP\nl3: JMP l4\nNOP\nl4: MOV AX, 9999H\nHLT\n",
             Map.of("AX", 0x9999)));
 
         c.put("source-representation", timed("source-representation",
