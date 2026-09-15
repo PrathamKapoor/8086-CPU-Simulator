@@ -1,0 +1,4 @@
+JMP 2
+NOP
+MOV AX,5
+HLT

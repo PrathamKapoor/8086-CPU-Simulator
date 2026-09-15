@@ -15,6 +15,7 @@ public class BusInterfaceUnit {
     private final PC            ip;
 
     private boolean halted = false;
+    private int programLength = 0;
 
     public BusInterfaceUnit(CS cs, PC ip, Memory memory) {
         this.prefetchQueue = new PrefetchQueue();
@@ -40,8 +41,28 @@ public class BusInterfaceUnit {
         if (!prefetchQueue.isFull()) {
             int value = memory.readByte(physAddr);
             prefetchQueue.enqueue(value);
+            fetchState.advanceFetchOffset();
             busState.setDataBusActive(true);
         }
+    }
+
+    /** One deterministic fetch opportunity.  The EU owns the bus when busAvailable is false. */
+    public BiuTickResult tick(boolean busAvailable, int sourceProgramLength) {
+        programLength = sourceProgramLength;
+        busState.tick();
+        if (halted || fetchState.getNextFetchOffset() >= programLength) {
+            return new BiuTickResult(false, false, false, fetchState.getFetchPhysicalAddress(), -1);
+        }
+        if (!busAvailable) return new BiuTickResult(false, true, false, fetchState.getFetchPhysicalAddress(), -1);
+        if (prefetchQueue.isFull()) return new BiuTickResult(false, false, true, fetchState.getFetchPhysicalAddress(), -1);
+        int physicalAddress = fetchState.computeFetchPhysicalAddress();
+        int value = memory.readByte(physicalAddress);
+        prefetchQueue.enqueue(value);
+        fetchState.advanceFetchOffset();
+        busState.setPhysicalAddress(physicalAddress);
+        busState.setAddressBusActive(true);
+        busState.setDataBusActive(true);
+        return new BiuTickResult(true, false, false, physicalAddress, value);
     }
 
     public boolean hasAvailableInstruction() {
@@ -66,6 +87,12 @@ public class BusInterfaceUnit {
 
     public void flushQueue() {
         prefetchQueue.clear();
+        fetchState.setNextFetchOffset(ip.output());
+    }
+
+    public void flushTo(int instructionOffset) {
+        prefetchQueue.clear();
+        fetchState.setNextFetchOffset(instructionOffset);
     }
 
     public void setHalted(boolean halted) {

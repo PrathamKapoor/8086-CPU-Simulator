@@ -63,6 +63,7 @@ public class MainGUI extends Application {
     private ListView<String> queueList;
     private ListView<String> executionLog;
     private ListView<String> microOpLog;
+    private ListView<String> microarchitectureTimeline;
 
     private TableView<KeyValueRow> registerTable;
     private TableView<KeyValueRow> memoryTable;
@@ -72,6 +73,7 @@ public class MainGUI extends Application {
     private final ObservableList<String> queueItems = FXCollections.observableArrayList();
     private final ObservableList<String> executionItems = FXCollections.observableArrayList();
     private final ObservableList<String> microOpItems = FXCollections.observableArrayList();
+    private final ObservableList<String> timelineItems = FXCollections.observableArrayList();
     private final ObservableList<KeyValueRow> registerRows = FXCollections.observableArrayList();
     private final ObservableList<KeyValueRow> memoryRows = FXCollections.observableArrayList();
     private final ObservableList<KeyValueRow> busRows = FXCollections.observableArrayList();
@@ -250,6 +252,8 @@ public class MainGUI extends Application {
 
         microOpLog = new ListView<>(microOpItems);
         microOpLog.getStyleClass().add("dashboard-list");
+        microarchitectureTimeline = new ListView<>(timelineItems);
+        microarchitectureTimeline.getStyleClass().add("dashboard-list");
 
         registerTable = createKeyValueTable("Register", "Value", registerRows);
         memoryTable = createKeyValueTable("Cell", "Value", memoryRows);
@@ -260,6 +264,7 @@ public class MainGUI extends Application {
             tab("Instruction Queue", queueList),
             tab("Execution Log", executionLog),
             tab("Micro-op Log", microOpLog),
+            tab("Microarchitecture Timeline", microarchitectureTimeline),
             tab("Register State", registerTable),
             tab("Memory Table", memoryTable),
             tab("Bus State", busTable),
@@ -409,6 +414,7 @@ public class MainGUI extends Application {
         busLabel.setText(describeBusState());
 
         refreshQueue();
+        refreshTimeline();
         refreshRegisterTable();
         refreshMemoryTable();
         refreshBusTable(lastOp);
@@ -421,16 +427,23 @@ public class MainGUI extends Application {
 
     private List<String> buildQueueValues() {
         List<String> queue = new ArrayList<>();
-        int start = valueOf("IP");
         List<Instruction> program = cpu.getProgram();
+        int[] tokens = cpu.getBiu().getPrefetchQueue().getContents();
         for (int i = 0; i < 6; i++) {
-            int index = start + i;
+            int index = i < tokens.length ? tokens[i] : -1;
             if (index >= 0 && index < program.size())
                 queue.add(String.format("%d. %s", index, program.get(index)));
-            else
-                queue.add(String.format("%d. --", index));
+            else queue.add("--");
         }
         return queue;
+    }
+
+    private void refreshTimeline() {
+        List<String> rows = new ArrayList<>();
+        cpu.getCycleTrace().forEach(snapshot -> rows.add(String.format("C%04d BIU=%s EU=%s BUS=%s Q=%d %s",
+            snapshot.cycle(), snapshot.biuState(), snapshot.euState(), snapshot.busOwner(), snapshot.queueOccupancy(), snapshot.microOperation())));
+        timelineItems.setAll(rows);
+        if (!rows.isEmpty()) microarchitectureTimeline.scrollTo(rows.size() - 1);
     }
 
     private void refreshRegisterTable() {

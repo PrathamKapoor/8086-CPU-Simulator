@@ -129,6 +129,12 @@ jobs:
         env:
           JAVA_OPTS: ${{ env.JAVA_OPTS }}
 
+      - name: Run deterministic Phase 3 benchmark suite
+        id: phase3-benchmarks
+        run: java -cp target/cpu-simulator.jar simulator.MainSimulator --benchmark --json
+        env:
+          JAVA_OPTS: ${{ env.JAVA_OPTS }}
+
       # ------------------------------------------------------------------
       # Upload test results
       # ------------------------------------------------------------------

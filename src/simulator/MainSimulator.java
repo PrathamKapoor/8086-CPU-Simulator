@@ -11,6 +11,10 @@ import simulator.verify.VectorRunner;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import simulator.experiment.BenchmarkCatalog;
+import simulator.experiment.ExperimentRunner;
+import simulator.profiler.TimingModel;
+import simulator.profiler.PerformanceProfiler;
 
 /**
  * MainSimulator — CLI entry point for headless (no-GUI) execution.
@@ -43,6 +47,10 @@ public class MainSimulator {
             runVerify(args);
             return;
         }
+        if (args.length > 0 && args[0].equals("--benchmark")) {
+            runBenchmarks(args);
+            return;
+        }
         System.out.println("==================================================");
         System.out.println("   8086 CPU Simulator - RTL Level");
         System.out.println("   Educational Tool for Computer Architecture");
@@ -51,8 +59,9 @@ public class MainSimulator {
         String programText;
         String source;
 
-        if (args.length > 0) {
-            Path filePath = Path.of(args[0]);
+        String fileArgument = java.util.Arrays.stream(args).filter(a -> !a.startsWith("--timing=") && !a.equals("--trace") && !a.equals("--profile") && !a.equals("--json")).findFirst().orElse(null);
+        if (fileArgument != null) {
+            Path filePath = Path.of(fileArgument);
             if (!Files.exists(filePath)) {
                 System.err.println("File not found: " + args[0]);
                 return;
@@ -87,6 +96,8 @@ public class MainSimulator {
         System.out.println();
 
         CPU cpu = new CPU();
+        TimingModel timing = parseTiming(args);
+        cpu.setTimingModel(timing);
         cpu.loadProgram(instructions);
 
         System.out.println("=".repeat(70));
@@ -97,7 +108,9 @@ public class MainSimulator {
 
         while (!cpu.isHalted() && cpu.getCurrentMicroOp() != null && iterations++ < safetyLimit) {
             MicroOperation op = cpu.step();
-            if (op == null) break;
+            // A null operation in a timing mode is an explicit simulated stall,
+            // not end-of-program; its state is available through the cycle trace.
+            if (op == null) continue;
 
             String phase = switch (op.getType()) {
                 case MAR_LOAD_PC, MDR_LOAD_MEMORY, IR_LOAD_MDR -> "FETCH  ";
@@ -163,8 +176,27 @@ public class MainSimulator {
         System.out.println("  Total micro-ops executed: " + cpu.getExecutedTrace().size());
         System.out.println("  Total instructions: " + instructions.size());
         System.out.println("  Program source: " + source);
+        PerformanceProfiler profiler = new PerformanceProfiler(cpu);
+        if (has(args, "--profile")) System.out.println("  Timing profile: " + profiler.snapshot());
+        if (has(args, "--trace")) cpu.getCycleTrace().forEach(snapshot -> System.out.println(snapshot.toJson()));
+        if (has(args, "--json")) System.out.println("{\"timing\":\"" + timing + "\",\"profile\":" + profiler.metrics().toJson() + ",\"trace\":[" + cpu.getCycleTrace().stream().map(s -> s.toJson()).collect(java.util.stream.Collectors.joining(",")) + "]}");
         System.out.println("\nSimulation complete.");
     }
+
+    private static void runBenchmarks(String[] args) {
+        boolean json = has(args, "--json");
+        var results = BenchmarkCatalog.all().values().stream().map(ExperimentRunner::run).toList();
+        if (json) System.out.println("[" + results.stream().map(r -> r.toJson()).collect(java.util.stream.Collectors.joining(",")) + "]");
+        else results.forEach(r -> System.out.println(r.definition().name() + " architectural=" + r.architecturalResultMatches() + " " + r.metrics().toJson()));
+        if (results.stream().anyMatch(r -> !r.architecturalResultMatches())) System.exit(1);
+    }
+
+    private static TimingModel parseTiming(String[] args) {
+        String value = java.util.Arrays.stream(args).filter(a -> a.startsWith("--timing=")).map(a -> a.substring(9)).findFirst().orElse("functional");
+        return switch (value) { case "functional" -> TimingModel.FUNCTIONAL; case "simplified-8086" -> TimingModel.SIMPLIFIED_8086; case "experimental" -> TimingModel.EXPERIMENTAL; default -> throw new IllegalArgumentException("Unknown timing mode: " + value); };
+    }
+
+    private static boolean has(String[] args, String flag) { return java.util.Arrays.asList(args).contains(flag); }
 
     private static void runVerify(String[] args) {
         System.out.println("==================================================");

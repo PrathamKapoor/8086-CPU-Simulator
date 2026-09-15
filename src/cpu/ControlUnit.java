@@ -462,7 +462,7 @@ public class ControlUnit {
             }
 
             // ============================================================
-            //  Unimplemented — stub as NOP for now
+            //  Explicitly scoped partial behavior; execution records the model limitation.
             // ============================================================
             case IN -> {
                 if (instr.getFormat() == InstructionFormat.FIXED_AL_IMM) {

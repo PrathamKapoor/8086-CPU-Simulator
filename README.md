@@ -51,6 +51,34 @@ java -cp target/cpu-simulator.jar simulator.MainSimulator examples/demos/04_cont
 mvn clean package
 ```
 
+## Phase 3 microarchitecture experiments
+
+The simulator provides a deterministic educational BIU/EU timing model. It is
+not a physical 8086 cycle-accuracy claim: because Phase 4 binary encoding is
+not implemented, each six-entry prefetch-queue entry is one parsed assembly
+source-instruction token rather than a measured opcode byte length.
+
+`FUNCTIONAL` preserves architectural execution. `SIMPLIFIED_8086` and the
+explicitly experimental `EXPERIMENTAL` mode use one deterministic simulation
+clock, a single shared bus (`BIU_FETCH` or `EU_MEMORY`), queue starvation,
+internal-operation overlap, and post-retirement queue flushing only when the
+architectural PC actually changes stream. Typed cycle snapshots drive the
+profiler, CLI trace, and JavaFX Microarchitecture Timeline; the GUI keeps no
+independent timing state.
+
+```bash
+java -cp target/cpu-simulator.jar simulator.MainSimulator examples/sample.asm --timing=simplified-8086 --trace --profile --json
+java -cp target/cpu-simulator.jar simulator.MainSimulator --benchmark --json
+```
+
+The fixed benchmark catalog is `compute-heavy`, `memory-heavy`,
+`branch-heavy`, `loop-heavy`, `queue-friendly-sequential`,
+`queue-hostile-control-flow`, and `mixed-workload`. Canonical source files are
+in `benchmark/`; each defines an expected architectural result and is replayed
+without wall-clock measurement. Profiler JSON reports only trace-derived
+metrics: cycles, retirements/CPI, source tokens fetched/consumed, queue state,
+BIU/EU activity, overlap/stalls, memory events, and control-transfer flushes.
+
 ## Running
 
 ```bash

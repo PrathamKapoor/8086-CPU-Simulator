@@ -10,6 +10,9 @@ import memory.Memory;
 import microoperation.MicroOperation;
 import microoperation.MicroOperationExecutor;
 import microoperation.MicroOperationType;
+import cpu.biu.BiuTickResult;
+import cpu.microarchitecture.*;
+import simulator.profiler.TimingModel;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -72,6 +75,9 @@ public class CPU {
     private int  totalOverlapCycles   = 0;
     private int  busActiveCycles      = 0;
     private int  biuFetchEvents       = 0;
+    private TimingModel timingModel = TimingModel.FUNCTIONAL;
+    private final List<CycleSnapshot> cycleTrace = new ArrayList<>();
+    private int timedInstructionIndex = -1;
 
     // ---- Program state ------------------------------------------------------
     private List<Instruction>    program     = new ArrayList<>();
@@ -155,6 +161,7 @@ public class CPU {
 
         // Initialize BIU / EU state
         biu.reset();
+        biu.getFetchState().setNextFetchOffset(0);
         eu.beginDecode();
         stallCycles = 0;
         queueFlushes = 0;
@@ -164,6 +171,8 @@ public class CPU {
         totalOverlapCycles = 0;
         busActiveCycles = 0;
         biuFetchEvents = 0;
+        cycleTrace.clear();
+        timedInstructionIndex = -1;
 
         halted = false;
         primeNextInstruction();
@@ -179,6 +188,9 @@ public class CPU {
      */
     public MicroOperation step() {
         if (halted || microOpBatch.isEmpty()) return null;
+        // The field is always initialized; the guard keeps the legacy body below
+        // source-compatible while the deterministic protocol owns normal execution.
+        if (timingModel != null) return timingModel == TimingModel.FUNCTIONAL ? stepFunctional() : stepTimed();
 
         // BIU tick: fetch instruction bytes into prefetch queue
         boolean biuActiveThisCycle = false;
@@ -253,6 +265,95 @@ public class CPU {
         return op;
     }
 
+    private MicroOperation stepFunctional() {
+        int index = pc.output();
+        MicroOperation op = microOpBatch.get(batchIndex);
+        boolean retired = batchIndex + 1 >= microOpBatch.size() || op.getType() == MicroOperationType.HALT;
+        MicroOperation result = executeCurrent();
+        List<MicroarchitectureEvent> events = retired ? List.of(new MicroarchitectureEvent(totalCyclesRun,
+            MicroarchitectureEventType.INSTRUCTION_RETIRE, -1, index, 1)) : List.of();
+        snapshot(UnitState.IDLE, UnitState.EU_ACTIVE, BusOwner.NONE, index, op, retired, events);
+        return result;
+    }
+
+    private MicroOperation stepTimed() {
+        boolean start = batchIndex == 0;
+        if (start) timedInstructionIndex = pc.output();
+        int index = timedInstructionIndex;
+        MicroOperation op = microOpBatch.get(batchIndex);
+        List<MicroarchitectureEvent> events = new ArrayList<>();
+        if (start && biu.getPrefetchQueue().isEmpty()) {
+            BiuTickResult fetched = biu.tick(true, program.size());
+            fetchEvents(events, fetched);
+            events.add(new MicroarchitectureEvent(totalCyclesRun + 1, MicroarchitectureEventType.QUEUE_EMPTY, -1, -1, 0));
+            events.add(new MicroarchitectureEvent(totalCyclesRun + 1, MicroarchitectureEventType.EU_STALL, -1, -1, 0));
+            stallCycles++; clock.tick(); totalCyclesRun++;
+            snapshot(fetched.fetched() ? UnitState.BIU_ACTIVE : UnitState.IDLE, UnitState.EU_WAITING_FOR_QUEUE,
+                fetched.fetched() ? BusOwner.BIU_FETCH : BusOwner.NONE, index, op, false, events);
+            return null;
+        }
+        boolean memoryOperation = usesExternalMemory(op.getType());
+        BiuTickResult fetched = biu.tick(!memoryOperation, program.size());
+        fetchEvents(events, fetched);
+        BusOwner owner = memoryOperation ? BusOwner.EU_MEMORY : (fetched.fetched() ? BusOwner.BIU_FETCH : BusOwner.NONE);
+        if (memoryOperation) {
+            events.add(new MicroarchitectureEvent(totalCyclesRun + 1, MicroarchitectureEventType.BUS_BUSY, -1, -1, 0));
+            events.add(new MicroarchitectureEvent(totalCyclesRun + 1, isMemoryWrite(op.getType()) ? MicroarchitectureEventType.MEM_WRITE : MicroarchitectureEventType.MEM_READ, -1, -1, 0));
+            if (fetched.waitingForBus()) events.add(new MicroarchitectureEvent(totalCyclesRun + 1, MicroarchitectureEventType.BIU_STALL, -1, -1, 0));
+        }
+        if (start) {
+            int token = eu.consumeByte(); bytesConsumed++;
+            events.add(new MicroarchitectureEvent(totalCyclesRun + 1, MicroarchitectureEventType.QUEUE_POP, -1, token, 1));
+            events.add(new MicroarchitectureEvent(totalCyclesRun + 1, MicroarchitectureEventType.EU_START, -1, index, 1));
+        }
+        boolean retired = batchIndex + 1 >= microOpBatch.size() || op.getType() == MicroOperationType.HALT;
+        MicroOperation result = executeCurrent();
+        if (retired) {
+            events.add(new MicroarchitectureEvent(totalCyclesRun, MicroarchitectureEventType.EU_COMPLETE, -1, index, 1));
+            events.add(new MicroarchitectureEvent(totalCyclesRun, MicroarchitectureEventType.INSTRUCTION_RETIRE, -1, index, 1));
+            if (pc.output() != ((index + 1) & 0xFFFF)) {
+                int flushed = biu.getPrefetchQueue().size(); biu.flushTo(pc.output()); queueFlushes++;
+                events.add(new MicroarchitectureEvent(totalCyclesRun, MicroarchitectureEventType.CONTROL_TRANSFER, -1, pc.output(), 1));
+                events.add(new MicroarchitectureEvent(totalCyclesRun, MicroarchitectureEventType.QUEUE_FLUSH, -1, -1, flushed));
+            }
+            timedInstructionIndex = -1;
+        }
+        if (fetched.fetched() && !memoryOperation) totalOverlapCycles++;
+        snapshot(fetched.fetched() ? UnitState.BIU_ACTIVE : (fetched.waitingForBus() ? UnitState.BIU_WAITING_FOR_BUS : (fetched.queueFull() ? UnitState.QUEUE_FULL : UnitState.IDLE)),
+            UnitState.EU_ACTIVE, owner, index, op, retired, events);
+        return result;
+    }
+
+    private MicroOperation executeCurrent() {
+        MicroOperation op = microOpBatch.get(batchIndex);
+        clock.tick(); op.execute(); totalCyclesRun++; executedTrace.add(op);
+        controlUnit.setCurrentPhase(determinePhase(op.getType()));
+        if (!isAluType(op.getType())) alu.setActive(false);
+        if (op.getType() == MicroOperationType.HALT) {
+            halted = true; microOpBatch.clear(); batchIndex = 0;
+            if (onHalt != null) onHalt.run(); if (onMicroOpExecuted != null) onMicroOpExecuted.accept(op); return op;
+        }
+        if (onMicroOpExecuted != null) onMicroOpExecuted.accept(op);
+        batchIndex++; if (batchIndex >= microOpBatch.size()) primeNextInstruction(); return op;
+    }
+
+    private void fetchEvents(List<MicroarchitectureEvent> events, BiuTickResult result) {
+        if (!result.fetched()) { if (result.queueFull()) events.add(new MicroarchitectureEvent(totalCyclesRun + 1, MicroarchitectureEventType.QUEUE_FULL, -1, -1, 0)); return; }
+        bytesFetched++; biuFetchEvents++; busActiveCycles++; maxQueueOccupancy = Math.max(maxQueueOccupancy, biu.getPrefetchQueue().size());
+        events.add(new MicroarchitectureEvent(totalCyclesRun + 1, MicroarchitectureEventType.FETCH_BYTE, result.physicalAddress(), result.value(), 1));
+        events.add(new MicroarchitectureEvent(totalCyclesRun + 1, MicroarchitectureEventType.QUEUE_PUSH, result.physicalAddress(), result.value(), 1));
+        events.add(new MicroarchitectureEvent(totalCyclesRun + 1, MicroarchitectureEventType.BUS_BUSY, result.physicalAddress(), result.value(), 1));
+    }
+
+    private void snapshot(UnitState biuState, UnitState euState, BusOwner owner, int index, MicroOperation op, boolean retired, List<MicroarchitectureEvent> events) {
+        List<Integer> queue = new ArrayList<>(); for (int value : biu.getPrefetchQueue().getContents()) queue.add(value);
+        cycleTrace.add(new CycleSnapshot(totalCyclesRun, biuState, euState, owner, queue, queue.size(), index,
+            index >= 0 && index < program.size() ? program.get(index).toString() : "", op.getRtlDescription(), retired, events));
+    }
+
+    private static boolean usesExternalMemory(MicroOperationType type) { return type == MicroOperationType.MDR_LOAD_MEMORY || type == MicroOperationType.MEMORY_WRITE_MDR || type == MicroOperationType.MEM_READ || type.name().startsWith("STRING_"); }
+    private static boolean isMemoryWrite(MicroOperationType type) { return type == MicroOperationType.MEMORY_WRITE_MDR || type == MicroOperationType.STRING_MOVS || type == MicroOperationType.STRING_STOS; }
+
     /**
      * Execute ALL remaining micro-ops until HLT or end of program.
      */
@@ -284,6 +385,9 @@ public class CPU {
         totalCyclesRun = 0;
         halted         = false;
         executedTrace.clear();
+        cycleTrace.clear();
+        biu.reset();
+        stallCycles = queueFlushes = bytesFetched = bytesConsumed = maxQueueOccupancy = totalOverlapCycles = busActiveCycles = biuFetchEvents = 0;
         program        = new ArrayList<>();
         controlUnit.setCurrentPhase("IDLE");
     }
@@ -348,6 +452,10 @@ public class CPU {
     public int                   getBatchIndex()             { return batchIndex; }
     public boolean               isHalted()                  { return halted; }
     public long                  getTotalCyclesRun()         { return totalCyclesRun; }
+    public TimingModel           getTimingModel()             { return timingModel; }
+    public void                  setTimingModel(TimingModel model) { timingModel = model == null ? TimingModel.FUNCTIONAL : model; }
+    public List<CycleSnapshot>   getCycleTrace()              { return List.copyOf(cycleTrace); }
+    public CycleSnapshot         getLastCycleSnapshot()       { return cycleTrace.isEmpty() ? null : cycleTrace.get(cycleTrace.size() - 1); }
 
     public MicroOperation getCurrentMicroOp() {
         if (halted || microOpBatch.isEmpty() || batchIndex >= microOpBatch.size()) return null;

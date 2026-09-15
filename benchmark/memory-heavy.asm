@@ -1,0 +1,4 @@
+MOV AX, 7
+MOV [0x100], AX
+MOV BX, [0x100]
+HLT

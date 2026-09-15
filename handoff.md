@@ -2,7 +2,7 @@
 
 ## 1. Current Phase
 
-- **Phase**: Phase 4 (Implementation & Hardening) → now entering user-directed **Phase 1 of the 10/10 roadmap: Correctness closure** (stub elimination).
+- **Historical handoff (superseded):** this record described work before the current user-directed Phase 3 release finalization. Phase 4 remains not started for the current release.
 - **Subphase**: Correctness closure, part 1 — Silent-stub elimination (roadmap items 1–6, 18, 30–32 scoped).
 - **Objective**: No advertised instruction may silently do nothing. Implement DAA/DAS/INTO; scope LOCK/WAIT/ESC explicitly; make ISA status authoritative; fix repo honesty defects (Dockerfile jar name, README tree, junk file).
 - **Status**: COMPLETED — Zero silent NOPs remain for any parsed opcode. DAA/DAS verified over 2048 exhaustive cases + known answers. INTO verified end-to-end (trap + fall-through). 19/19 programs run clean. Build has 0 errors (non-GUI + GUI).

@@ -1,0 +1,5 @@
+MOV AX, 1
+MOV CX, 8
+L: ADD AX, AX
+LOOP L
+HLT

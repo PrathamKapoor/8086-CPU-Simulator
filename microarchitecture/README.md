@@ -28,7 +28,7 @@ Components:
 ### Integration (`cpu.CPU`)
 
 `CPU.loadProgram()` initializes BIU/EU state.
-`CPU.step()` performs a deterministic BIU tick (fetch into queue) followed by EU consumption/decode tracking, then executes the current micro-operation.
+`CPU.step()` is the sole deterministic simulation clock. In `FUNCTIONAL` mode it advances one existing functional micro-operation. In `SIMPLIFIED_8086`/`EXPERIMENTAL` it records an explicit cycle: queue readiness, bus arbitration, optional BIU fetch, at most one EU micro-operation, post-retirement control-transfer outcome, and an immutable cycle snapshot.
 `Memory.readByte()` supports byte-level BIU fetching.
 
 ### Queue (`cpu.biu.PrefetchQueue`)
@@ -66,7 +66,7 @@ Conceptual event types tracked:
 - `CONTROL_TRANSFER`
 - `INTERRUPT_ENTRY`/`IRET`
 
-Full structured event timeline visualization is the responsibility of the Phase 3 GUI extension, which uses these conceptual events.
+`cpu.microarchitecture.MicroarchitectureEventType`, `MicroarchitectureEvent`, and `CycleSnapshot` are the canonical typed trace representation. The JavaFX "Microarchitecture Timeline" renders the real snapshot history, including cycle, BIU, EU, bus owner, occupancy, and current micro-operation.
 
 ### Instrumentation (`simulator.profiler.PerformanceProfiler`)
 
@@ -90,7 +90,7 @@ Metrics exposed:
 - `biu_utilization`
 - `eu_utilization`
 
-These are educational metrics, not physical 8086 hardware measurements.
+`PerformanceProfiler.metrics()` derives total cycles, retirement count, CPI, fetched/consumed source tokens, average occupancy, empty/full cycles, active/overlap/stall cycles, memory events, and flush/flushed-token counts solely from this trace. These are educational metrics, not physical 8086 hardware measurements.
 
 ### Verification
 
@@ -100,14 +100,17 @@ The mutation regression mechanism (`simulator/verify/mutation_regression.py`) ap
 
 ### Benchmark Framework (`benchmark/`)
 
-Lightweight deterministic workload suite:
-- `sequential.asm`
-- `branch_heavy.asm`
-- `loop_heavy.asm`
-- `string_workload.asm`
-- `benchmark/Phase3Benchmark.java`
+Canonical deterministic workload suite:
+- `compute-heavy.asm`
+- `memory-heavy.asm`
+- `branch-heavy.asm`
+- `loop-heavy.asm`
+- `queue-friendly-sequential.asm`
+- `queue-hostile-control-flow.asm`
+- `mixed-workload.asm`
+- `benchmark/Phase3Benchmark.java` (delegates to the same catalog as the CLI)
 
-Provides reproducible `function` vs `simplified_8086` comparison without claiming silicon-level accuracy.
+`simulator.experiment.BenchmarkCatalog` additionally defines seven fixed workloads (compute, memory, branch, loop, queue-friendly, queue-hostile, mixed). Each is an assembly source plus expected architectural registers and is run without wall-clock timing. Use `simulator.MainSimulator --benchmark --json` for deterministic machine-readable results.
 
 ### Documentation
 
@@ -120,7 +123,7 @@ All claims in `verification/README.md` and this file are truthful and consistent
 - No transistor-level or silicon-level timing verification.
 - No complete real-world benchmark comparison with physical hardware.
 - No full microarchitectural golden trace for all 37 vector scenarios (architecture exists; full expanded trace suite remains future work).
-- No complete GUI timeline visualization (BIU/EU state tracking exists; full visual timeline remains future work).
+- The queue models one parsed assembly source-instruction token per entry; it does not claim to know real encoded instruction byte lengths. "Bytes" in Phase 3 metrics therefore means model fetch tokens.
 - No Phase 4 machine-code encoder/decoder layer.
 
 This is explicitly an educational and experimental microarchitecture layer.

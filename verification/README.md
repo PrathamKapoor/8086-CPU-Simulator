@@ -96,7 +96,7 @@ This mechanism is deterministic, never leaves mutation artifacts in the repo, an
 ## CLI Verification
 
 ```bash
-java -cp target/*.jar simulator.MainSimulator verify
+java -cp target/cpu-simulator.jar simulator.MainSimulator verify
 ```
 
 Returns exit code `0` when all 12 (now 37) golden vectors pass, non-zero when any fails. The `MainSimulator.verify` method uses `simulator.verify.VectorRunner.runAll()` which executes real `cpu.CPU` instances against `GoldenReference` and exits with `System.exit(0)` on pass, `System.exit(1)` on fail.
@@ -104,7 +104,7 @@ Returns exit code `0` when all 12 (now 37) golden vectors pass, non-zero when an
 JSON format:
 
 ```bash
-java -cp target/*.jar simulator.MainSimulator verify --format=json
+java -cp target/cpu-simulator.jar simulator.MainSimulator verify --format=json
 ```
 
 Returns machine-readable JSON with `status`, `passed`, `failed`, `details`. Exit code `0` on pass, non-zero on fail.
@@ -128,7 +128,7 @@ The `build-and-test` job runs:
 
 1. `mvn clean package -B -DskipTests`
 2. `mvn test -B`
-3. `java -cp target/*.jar simulator.MainSimulator verify`
+3. `java -cp target/cpu-simulator.jar simulator.MainSimulator verify`
 
 Verification is a blocking step (`id: verify`). It has no `continue-on-error`. If verification fails, the build fails.
 

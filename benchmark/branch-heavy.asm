@@ -1,0 +1,5 @@
+MOV AX,0
+MOV CX,3
+L: INC AX
+LOOP L
+HLT
