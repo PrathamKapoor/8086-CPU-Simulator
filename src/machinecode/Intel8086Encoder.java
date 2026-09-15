@@ -131,6 +131,7 @@ public final class Intel8086Encoder {
         String seg = destIsSeg ? dest : src;
         String gpr = destIsSeg ? src : dest;
         if (isByteRegister(gpr)) throw new EncodeException("MOV segment-register form requires a 16-bit general register");
+        if (destIsSeg && "CS".equals(seg)) throw new EncodeException("MOV CS, r16 is not a legal 8086 encoding; CS can only change via a control transfer");
         int segCode = segmentRegisterCode(seg);
         int opcodeByte = destIsSeg ? 0x8E : 0x8C;
         return concatenate(new byte[] { (byte) opcodeByte }, ModRm.registerDirect(segCode, generalRegisterCode(gpr)).toBytes());
@@ -395,7 +396,11 @@ public final class Intel8086Encoder {
     }
 
     private static ModRm memoryOperand(Instruction instruction, int regField) {
-        return ModRm.memory(regField, instruction.getBaseReg(), instruction.getIndexReg(), instruction.getDisplacement(), false);
+        try {
+            return ModRm.memory(regField, instruction.getBaseReg(), instruction.getIndexReg(), instruction.getDisplacement(), false);
+        } catch (IllegalArgumentException e) {
+            throw new EncodeException(e.getMessage());
+        }
     }
 
     private static byte[] concatenate(byte[] left, byte[] right) {

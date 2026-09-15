@@ -15,7 +15,16 @@ class RoundTripPropertyTest {
             "NOP", "HLT", "MOV AX, BX", "MOV AL, 7", "MOV AX, 1234H",
             "ADD AX, BX", "SUB AX, 1", "XOR AL, AL", "PUSH AX", "POP DI",
             "INC AX", "DEC BX", "NEG AX", "NOT AX", "CLC", "PUSHF", "MOVSB",
-            "INT 21H", "JMP 5", "JZ 5", "CALL 10"
+            "INT 21H", "JMP 5", "JZ 5", "CALL 10",
+            "MOV AL, [1234H]", "MOV [1234H], AX", "MOV DS, AX", "MOV AX, DS",
+            "MOV WORD [BX], 1234H", "MOV BYTE [BX], 7",
+            "TEST AL, 5", "TEST AX, 1234H", "TEST CX, 5", "TEST [BX], AX",
+            "XCHG AX, [BX]", "SHL AX, 1", "ROR BX, 1", "RCR CL, 1", "SAR DX, 1",
+            "MUL BX", "IMUL CX", "DIV BX", "IDIV CX",
+            "LEA AX, [BX+SI]", "LDS AX, [BX]", "LES BX, [SI]",
+            "IN AL, 40H", "IN AX, DX", "OUT 40H, AL", "OUT DX, AX",
+            "PUSH ES", "PUSH DS", "POP ES", "PUSH [BX]", "POP [BX]",
+            "INT 3", "INC WORD [BX]", "DEC WORD [BX]", "NOT WORD [BX]", "NEG WORD [BX]"
         };
         for (String source : corpus) {
             byte[] first = encoder.encode(parser.parseLine(source), 0).bytes();

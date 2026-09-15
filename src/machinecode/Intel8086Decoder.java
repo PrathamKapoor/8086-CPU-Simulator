@@ -316,6 +316,9 @@ public final class Intel8086Decoder {
         ModRm modRm = ModRm.decode(cursor);
         String seg = segmentRegister(modRm.reg());
         boolean destIsSeg = opcode == 0x8E;
+        if (destIsSeg && "CS".equals(seg)) {
+            throw new DecodeException("MOV CS, r/m16 is not a legal 8086 encoding; CS can only change via a control transfer");
+        }
         if (modRm.registerDirect()) {
             String gpr = wordRegister(modRm.rm());
             String dest = destIsSeg ? seg : gpr;
