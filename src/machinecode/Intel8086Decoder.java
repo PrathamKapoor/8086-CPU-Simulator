@@ -10,6 +10,18 @@ import java.util.ArrayList;
 
 /** Decodes one supported 8086 instruction from an explicit byte-stream offset. */
 public final class Intel8086Decoder {
+    public List<DecodedInstruction> decodeAll(byte[] bytes) {
+        if (bytes == null) throw new IllegalArgumentException("bytes must not be null");
+        List<DecodedInstruction> decoded = new ArrayList<>();
+        int offset = 0;
+        while (offset < bytes.length) {
+            DecodedInstruction instruction = decode(bytes, offset);
+            decoded.add(instruction);
+            offset = instruction.nextOffset();
+        }
+        return List.copyOf(decoded);
+    }
+
     public DecodedInstruction decode(byte[] bytes, int offset) {
         ByteCursor cursor = new ByteCursor(bytes, offset);
         int opcode = cursor.readU8();
