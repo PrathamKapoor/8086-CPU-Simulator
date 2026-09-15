@@ -1,0 +1,15 @@
+trace
+break 5
+run
+regs
+checkpoint
+watch 20H write
+step
+step
+explain
+statejson
+tracejson
+stepover
+step
+regs
+quit

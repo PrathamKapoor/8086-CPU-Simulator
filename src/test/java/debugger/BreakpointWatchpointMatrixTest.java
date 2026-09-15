@@ -56,6 +56,36 @@ class BreakpointWatchpointMatrixTest {
         assertEquals(0, s.cpu().getRegister("AX").output());
     }
 
+    @Test void steppingPastABreakpointActuallyExecutesItInsteadOfReTriggering() {
+        // Regression: once stopped at a breakpoint, the next step/run/continue
+        // must execute that instruction and move on, not immediately re-hit
+        // the same breakpoint forever.
+        DebugSession s = session("MOV AX, 0001H\nMOV BX, 0002H\nMOV CX, 0003H\nHLT\n");
+        s.addInstructionBreakpoint(1, null);
+        assertEquals(StopReason.BREAKPOINT, s.run());
+        assertEquals(0, s.cpu().getRegister("BX").output());
+
+        assertEquals(StopReason.SINGLE_STEP, s.stepInstruction());
+        assertEquals(2, s.cpu().getRegister("BX").output());
+        assertEquals(2, s.currentPosition().instructionIndex());
+
+        assertEquals(StopReason.TERMINATION, s.run());
+        assertEquals(3, s.cpu().getRegister("CX").output());
+    }
+
+    @Test void continueAfterBreakpointAlsoMovesPastItAndCanReHitOnALoopBack() {
+        DebugSession s = session("MOV CX, 0002H\nback: DEC CX\nJNZ back\nMOV AX, 9999H\nHLT\n");
+        s.addInstructionBreakpoint(1, null); // "back: DEC CX" -- reached twice
+        assertEquals(StopReason.BREAKPOINT, s.run());
+        assertEquals(2, s.cpu().getRegister("CX").output());
+        // continuing must execute this DEC CX, then loop back to instruction[1]
+        // a second time and stop there again -- not get permanently stuck.
+        assertEquals(StopReason.BREAKPOINT, s.continueExecution());
+        assertEquals(1, s.cpu().getRegister("CX").output());
+        assertEquals(StopReason.TERMINATION, s.continueExecution());
+        assertEquals(0x9999, s.cpu().getRegister("AX").output());
+    }
+
     @Test void disabledBreakpointDoesNotStop() {
         DebugSession s = session("MOV AX, 0001H\nMOV BX, 0002H\nHLT\n");
         int id = s.addInstructionBreakpoint(1, null);

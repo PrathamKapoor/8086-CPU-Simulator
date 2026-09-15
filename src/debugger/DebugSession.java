@@ -136,7 +136,20 @@ public final class DebugSession implements MemoryAccessListener {
     // =========================================================================
 
     /** One micro-operation — the simulator's true atomic step (see design note). */
-    public StopReason stepMicroOp() {
+    public StopReason stepMicroOp() { return stepMicroOp(true); }
+
+    /**
+     * @param suppressBreakpointHere if true, a breakpoint sitting exactly at
+     * the instruction boundary this call starts from is ignored (this call
+     * still executes). Every directed step (this method's public overload,
+     * stepInstruction/stepOver/stepOut's first inner step) suppresses so
+     * that "step" from a breakpoint you are already stopped at actually
+     * moves forward, matching standard debugger behavior; run()/continue()
+     * suppress only their own first step for the same reason, then check
+     * normally as execution proceeds — including back around a loop to the
+     * same position.
+     */
+    private StopReason stepMicroOp(boolean suppressBreakpointHere) {
         if (cpu.isHalted()) return lastStopReason = StopReason.TERMINATION;
         pendingWatchHits = new ArrayList<>();
 
@@ -158,7 +171,7 @@ public final class DebugSession implements MemoryAccessListener {
 
         if (isInstructionStart) {
             ExecutionPosition pos = positionFor(preIndex, true);
-            Breakpoint hit = matchingBreakpoint(pos);
+            Breakpoint hit = suppressBreakpointHere ? null : matchingBreakpoint(pos);
             if (hit != null) {
                 hit.recordHit();
                 lastBreakpointId = hit.id();
@@ -217,10 +230,15 @@ public final class DebugSession implements MemoryAccessListener {
     }
 
     /** All micro-ops of exactly one instruction (see design note for the boundary definition). */
-    public StopReason stepInstruction() {
+    public StopReason stepInstruction() { return stepInstruction(true); }
+
+    /** @param suppressBreakpointHere see {@link #stepMicroOp(boolean)} — applies only to this call's first micro-op. */
+    private StopReason stepInstruction(boolean suppressBreakpointHere) {
         if (cpu.isHalted()) return lastStopReason = StopReason.TERMINATION;
+        boolean first = true;
         do {
-            StopReason r = stepMicroOp();
+            StopReason r = stepMicroOp(first && suppressBreakpointHere);
+            first = false;
             if (r == StopReason.BREAKPOINT || r == StopReason.WATCHPOINT || r == StopReason.TERMINATION) return r;
         } while (cpu.getBatchIndex() != 0 && !cpu.isHalted());
         return lastStopReason = cpu.isHalted() ? StopReason.TERMINATION : StopReason.SINGLE_STEP;
@@ -230,7 +248,9 @@ public final class DebugSession implements MemoryAccessListener {
      * Step over a CALL as one logical step (runs the callee to completion);
      * degrades to {@link #stepInstruction()} for any other instruction —
      * this is not faked, it is exactly what "step over" means when the
-     * current instruction is not a call.
+     * current instruction is not a call. A breakpoint reached *inside* the
+     * callee still stops (only the CALL instruction itself, which we are
+     * already standing on, is suppressed).
      */
     public StopReason stepOver() {
         if (cpu.isHalted()) return lastStopReason = StopReason.TERMINATION;
@@ -240,14 +260,14 @@ public final class DebugSession implements MemoryAccessListener {
         int callIndex = cpu.getRegister("IP").output();
         int returnTarget = callIndex + 1;
         int spAtCall = cpu.getRegister("SP").output();
-        StopReason r = stepInstruction();
+        StopReason r = stepInstruction(true);
         if (r != StopReason.SINGLE_STEP) return r;
         while (true) {
             if (cpu.isHalted()) return lastStopReason = StopReason.TERMINATION;
             if (cpu.getRegister("IP").output() == returnTarget && cpu.getRegister("SP").output() == spAtCall) {
                 return lastStopReason = StopReason.SINGLE_STEP;
             }
-            StopReason inner = stepInstruction();
+            StopReason inner = stepInstruction(false);
             if (inner != StopReason.SINGLE_STEP) return inner;
         }
     }
@@ -256,14 +276,18 @@ public final class DebugSession implements MemoryAccessListener {
      * Run until the current subroutine returns (the first RET/RETF retired
      * at a stack depth shallower than when stepOut() was called). This is a
      * documented heuristic appropriate to this simulator's CALL/RET model,
-     * not a claim of handling arbitrary stack manipulation.
+     * not a claim of handling arbitrary stack manipulation. A breakpoint
+     * reached before the return still stops (only the instruction already
+     * standing at when stepOut() was called is suppressed).
      */
     public StopReason stepOut() {
         if (cpu.isHalted()) return lastStopReason = StopReason.TERMINATION;
         int spAtEntry = cpu.getRegister("SP").output();
+        boolean first = true;
         while (true) {
             Instruction before = cpu.getCurrentInstruction();
-            StopReason r = stepInstruction();
+            StopReason r = stepInstruction(first);
+            first = false;
             if (r != StopReason.SINGLE_STEP) return r;
             if (cpu.isHalted()) return lastStopReason = StopReason.TERMINATION;
             boolean wasReturn = before != null && (before.getOpcode() == Opcode.RET || before.getOpcode() == Opcode.RETF);
@@ -271,16 +295,29 @@ public final class DebugSession implements MemoryAccessListener {
         }
     }
 
-    /** Run until a breakpoint, watchpoint, termination, user pause, or the micro-op limit. */
+    /**
+     * Run until a breakpoint, watchpoint, termination, user pause, or the
+     * micro-op limit. Like a real debugger's "continue", a breakpoint at the
+     * position execution is already stopped at does not immediately re-fire
+     * — only this call's first step suppresses it; every position reached
+     * afterwards (including looping back to the same one) is checked
+     * normally.
+     */
     public StopReason run() { return run(DEFAULT_EXECUTION_LIMIT); }
 
     public StopReason run(long microOpLimit) {
         pauseRequested.set(false);
         long start = microOpCounter;
+        // Only suppress the very first check if we are actually resuming from a
+        // breakpoint stop at this exact position; a fresh/reset session (or one
+        // that stopped for any other reason) must still honor a breakpoint sitting
+        // at its starting instruction -- see breakpointAtFirstInstruction.
+        boolean first = lastStopReason == StopReason.BREAKPOINT;
         while (true) {
             if (pauseRequested.get()) return lastStopReason = StopReason.USER_PAUSE;
             if (microOpCounter - start >= microOpLimit) return lastStopReason = StopReason.EXECUTION_LIMIT;
-            StopReason r = stepMicroOp();
+            StopReason r = stepMicroOp(first);
+            first = false;
             if (r != StopReason.SINGLE_STEP) return r;
         }
     }

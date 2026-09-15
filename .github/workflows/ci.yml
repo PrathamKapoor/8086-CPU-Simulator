@@ -136,6 +136,44 @@ jobs:
           JAVA_OPTS: ${{ env.JAVA_OPTS }}
 
       # ------------------------------------------------------------------
+      # Phase 5 debugger verification: a deterministic scripted session
+      # covering load, breakpoints, run/step/step-over, a watchpoint,
+      # explain, checkpoint/rewind, and JSON state/trace output, driven
+      # through the packaged jar (not just the unit test suite).
+      # ------------------------------------------------------------------
+      - name: Run deterministic Phase 5 debugger verification
+        id: phase5-debugger
+        run: |
+          java -cp target/cpu-simulator.jar simulator.DebuggerCli \
+            examples/phase5-debugger-demo.asm scripts/phase5-debugger-ci-session.txt > phase5-debugger-output.txt
+          echo "---- Phase 5 debugger session output ----"
+          cat phase5-debugger-output.txt
+          grep -q "stop=BREAKPOINT" phase5-debugger-output.txt
+          grep -q "stop=WATCHPOINT" phase5-debugger-output.txt
+          grep -q "checkpoint 1" phase5-debugger-output.txt
+          grep -q "INSTRUCTION_START" phase5-debugger-output.txt
+        env:
+          JAVA_OPTS: ${{ env.JAVA_OPTS }}
+
+      # ------------------------------------------------------------------
+      # Security / repository audit: no tracked build artifacts, no
+      # generated dependency files, no secrets/credentials/.env files.
+      # ------------------------------------------------------------------
+      - name: Repository security audit
+        id: security-audit
+        run: |
+          set -e
+          echo "Checking for tracked compiled/generated artifacts..."
+          if git ls-files | grep -E '\.class$'; then echo "Tracked .class files found"; exit 1; fi
+          if git ls-files | grep -E '\.jar$'; then echo "Tracked .jar files found"; exit 1; fi
+          if git ls-files | grep -E '^target/'; then echo "Tracked target/ files found"; exit 1; fi
+          if git ls-files | grep -iE '\.env$|\.env\.[^e]|\.db$|\.sqlite3?$|dependency-reduced-pom\.xml'; then echo "Tracked env/db/generated-pom files found"; exit 1; fi
+          echo "Checking for obvious secret/credential patterns in tracked source..."
+          if git grep -nIE "BEGIN (RSA|EC|OPENSSH|PRIVATE) KEY" -- . ':!*.md'; then echo "Possible private key material found"; exit 1; fi
+          if git grep -nIE '(password|api[_-]?key|secret)\s*=\s*"[^"]+"' -- '*.java' '*.xml' '*.yml' '*.properties'; then echo "Possible hard-coded credential found"; exit 1; fi
+          echo "Repository audit passed."
+
+      # ------------------------------------------------------------------
       # Upload test results
       # ------------------------------------------------------------------
       - name: Upload test reports
