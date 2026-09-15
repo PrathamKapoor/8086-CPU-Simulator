@@ -20,6 +20,7 @@ import machinecode.DecodedInstruction;
 import machinecode.EncodedInstruction;
 import machinecode.Intel8086Decoder;
 import machinecode.Intel8086Encoder;
+import machinecode.Intel8086Assembler;
 
 /**
  * MainSimulator — CLI entry point for headless (no-GUI) execution.
@@ -56,7 +57,7 @@ public class MainSimulator {
             runBenchmarks(args);
             return;
         }
-        if (args.length > 0 && (args[0].equals("--encode") || args[0].equals("--decode") || args[0].equals("--disassemble"))) {
+        if (args.length > 0 && (args[0].equals("--encode") || args[0].equals("--decode") || args[0].equals("--disassemble") || args[0].equals("--assemble") || args[0].equals("--machine-code"))) {
             runMachineCodeCommand(args);
             return;
         }
@@ -222,6 +223,27 @@ public class MainSimulator {
                 assembly = instruction.getRawText();
                 bytes = encoded.bytes();
                 length = encoded.length();
+            } else if (args[0].equals("--assemble")) {
+                String source = Files.readString(Path.of(args[1]));
+                var assembled = new Intel8086Assembler().assemble(new InstructionParser().parseProgram(source));
+                if (json) {
+                    System.out.println("{\"bytes\":\"" + toHex(assembled.bytes()) + "\",\"length\":" + assembled.bytes().length + "}");
+                } else {
+                    System.out.println(toHex(assembled.bytes()) + " (" + assembled.bytes().length + " bytes)");
+                }
+                return;
+            } else if (args[0].equals("--machine-code")) {
+                byte[] machineBytes = Files.readAllBytes(Path.of(args[1]));
+                CPU cpu = new CPU();
+                cpu.loadMachineCode(machineBytes);
+                cpu.run();
+                if (json) {
+                    System.out.println("{\"bytes\":\"" + toHex(machineBytes) + "\",\"length\":" + machineBytes.length
+                        + ",\"AX\":\"" + cpu.getRegister("AX").toHex().substring(2) + "\"}");
+                } else {
+                    System.out.println(toHex(machineBytes) + " -> AX=" + cpu.getRegister("AX").toHex());
+                }
+                return;
             } else {
                 bytes = parseHex(args[1]);
                 DecodedInstruction decoded = new Intel8086Decoder().decode(bytes, 0);

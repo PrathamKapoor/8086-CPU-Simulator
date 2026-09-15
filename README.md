@@ -54,9 +54,12 @@ mvn clean package
 ## Phase 3 microarchitecture experiments
 
 The simulator provides a deterministic educational BIU/EU timing model. It is
-not a physical 8086 cycle-accuracy claim: because Phase 4 binary encoding is
-not implemented, each six-entry prefetch-queue entry is one parsed assembly
-source-instruction token rather than a measured opcode byte length.
+not a physical 8086 cycle-accuracy claim. Source execution retains the Phase 3
+source-token queue model. Phase 4 machine-code execution (for the implemented
+codec subset) instead loads actual instruction bytes into `Memory`; the BIU
+fetches those bytes and the decoder reconstructs the existing semantic
+`Instruction` consumed by the existing ControlUnit. No second execution engine
+is used.
 
 `FUNCTIONAL` preserves architectural execution. `SIMPLIFIED_8086` and the
 explicitly experimental `EXPERIMENTAL` mode use one deterministic simulation
@@ -70,6 +73,27 @@ independent timing state.
 java -cp target/cpu-simulator.jar simulator.MainSimulator examples/sample.asm --timing=simplified-8086 --trace --profile --json
 java -cp target/cpu-simulator.jar simulator.MainSimulator --benchmark --json
 ```
+
+## Phase 4 machine-code tooling
+
+The machine-code layer currently supports a tested, growing 8086 subset:
+canonical `MOV` forms, register/immediate arithmetic and logic (`ADD`, `ADC`,
+`SUB`, `SBB`, `AND`, `OR`, `XOR`, `CMP`), relative `JMP`, `CALL`, conditional
+jumps and loop forms, plus the tested fixed-opcode, flag, adjust, interrupt and
+string forms. Unsupported forms fail explicitly; they are never emitted as
+invented opcodes or decoded as `NOP`.
+
+```bash
+java -cp target/cpu-simulator.jar simulator.MainSimulator --encode "MOV AX, BX" --json
+java -cp target/cpu-simulator.jar simulator.MainSimulator --decode "89 D8" --json
+java -cp target/cpu-simulator.jar simulator.MainSimulator --disassemble "8B 40 FE" --json
+```
+
+All byte-vector provenance and the executable initial corpus are documented in
+[`docs/verification/phase-4-machine-code-vectors.md`](docs/verification/phase-4-machine-code-vectors.md).
+The codec has explicit stream offsets, exact decoded lengths and typed errors
+for unknown/truncated forms. It is an educational 8086 real-mode model and does
+not claim compatibility with later x86 extensions.
 
 The fixed benchmark catalog is `compute-heavy`, `memory-heavy`,
 `branch-heavy`, `loop-heavy`, `queue-friendly-sequential`,
