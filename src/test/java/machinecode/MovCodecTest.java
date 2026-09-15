@@ -37,6 +37,7 @@ class MovCodecTest {
         assertEquals("BX", instruction.getBaseReg());
         assertEquals("SI", instruction.getIndexReg());
         assertEquals(-2, instruction.getDisplacement());
+        assertArrayEquals(new byte[] { (byte) 0x8B, 0x40, (byte) 0xFE }, instruction.getEncoded());
         assertEquals("MOV AX, [BX+SI-2]", new CanonicalDisassembler().disassemble(decoded));
     }
 

@@ -6,12 +6,20 @@ import instruction.Opcode;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.ArrayList;
 
 /** Decodes one supported 8086 instruction from an explicit byte-stream offset. */
 public final class Intel8086Decoder {
     public DecodedInstruction decode(byte[] bytes, int offset) {
         ByteCursor cursor = new ByteCursor(bytes, offset);
         int opcode = cursor.readU8();
+        List<Integer> prefixBytes = new ArrayList<>();
+        Opcode repeatPrefix = null;
+        if (opcode == 0xF2 || opcode == 0xF3) {
+            prefixBytes.add(opcode);
+            repeatPrefix = opcode == 0xF2 ? Opcode.REPNE : Opcode.REP;
+            opcode = cursor.readU8();
+        }
         Instruction instruction;
         if (opcode >= 0xB0 && opcode <= 0xB7) {
             String register = byteRegister(opcode & 7);
@@ -44,11 +52,18 @@ public final class Intel8086Decoder {
                 case 0x27, 0x2F, 0x37, 0x3F, 0x98, 0x99, 0x9B, 0x9C, 0x9D, 0x9E, 0x9F,
                      0xA4, 0xA5, 0xA6, 0xA7, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF,
                      0xC3, 0xCB, 0xCE, 0xCF, 0xD7, 0xF5, 0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD -> fixedInstruction(opcode);
+                case 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47 -> registerUnary(opcode, Opcode.INC);
+                case 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F -> registerUnary(opcode, Opcode.DEC);
+                case 0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57 -> registerUnary(opcode, Opcode.PUSH);
+                case 0x58, 0x59, 0x5A, 0x5B, 0x5C, 0x5D, 0x5E, 0x5F -> registerUnary(opcode, Opcode.POP);
+                case 0xF6, 0xF7, 0xFE, 0xFF -> decodeUnaryGroup(cursor, opcode);
                 default -> throw new DecodeException("Unsupported 8086 opcode 0x" + String.format("%02X", opcode) + " at offset " + offset);
             };
         }
         int length = cursor.position() - offset;
-        return new DecodedInstruction(offset, Arrays.copyOfRange(bytes, offset, cursor.position()), length, instruction, List.of());
+        byte[] raw = Arrays.copyOfRange(bytes, offset, cursor.position());
+        instruction = copyWithEncoded(instruction, raw, repeatPrefix);
+        return new DecodedInstruction(offset, raw, length, instruction, prefixBytes);
     }
 
     private Instruction decodeMov(ByteCursor cursor, int opcode) {
@@ -124,6 +139,24 @@ public final class Intel8086Decoder {
             .raw(semantic + " " + hex(base, 2)).build();
     }
 
+    private static Instruction registerUnary(int opcode, Opcode semantic) {
+        String register = wordRegister(opcode & 7);
+        return new Instruction.Builder(semantic).format(InstructionFormat.REG_ONLY).dest(register).src(register)
+            .raw(semantic + " " + register).build();
+    }
+
+    private Instruction decodeUnaryGroup(ByteCursor cursor, int opcode) {
+        boolean byteWidth = opcode == 0xF6 || opcode == 0xFE;
+        ModRm modRm = ModRm.decode(cursor);
+        if (!modRm.registerDirect()) throw new DecodeException("unary memory operands are not yet supported by semantic executor");
+        if ((opcode == 0xFE || opcode == 0xFF) && modRm.reg() > 1) throw new DecodeException("invalid INC/DEC opcode extension /" + modRm.reg());
+        if ((opcode == 0xF6 || opcode == 0xF7) && modRm.reg() != 2 && modRm.reg() != 3) throw new DecodeException("unsupported unary opcode extension /" + modRm.reg());
+        Opcode semantic = opcode == 0xFE || opcode == 0xFF ? (modRm.reg() == 0 ? Opcode.INC : Opcode.DEC) : (modRm.reg() == 2 ? Opcode.NOT : Opcode.NEG);
+        String register = byteWidth ? byteRegister(modRm.rm()) : wordRegister(modRm.rm());
+        return new Instruction.Builder(semantic).format(InstructionFormat.REG_ONLY).dest(register).src(register)
+            .raw(semantic + " " + register).build();
+    }
+
     private Instruction decodeInterrupt(ByteCursor cursor) {
         int vector = cursor.readU8();
         return new Instruction.Builder(Opcode.INT).format(InstructionFormat.IMM_ONLY).imm(vector)
@@ -181,5 +214,13 @@ public final class Intel8086Decoder {
         if (displacement > 0) builder.append('+').append(displacement);
         if (displacement < 0) builder.append(displacement);
         return builder.append(']').toString();
+    }
+
+    private static Instruction copyWithEncoded(Instruction instruction, byte[] encoded, Opcode prefix) {
+        return new Instruction.Builder(instruction.getOpcode()).format(instruction.getFormat())
+            .dest(instruction.getDestReg()).src(instruction.getSrcReg()).imm(instruction.getImmediate())
+            .addr(instruction.getAddress()).raw(instruction.getRawText()).baseReg(instruction.getBaseReg())
+            .indexReg(instruction.getIndexReg()).disp(instruction.getDisplacement()).segOverride(instruction.getSegmentOverride())
+            .encoded(encoded).prefix(prefix == null ? instruction.getPrefix() : prefix).build();
     }
 }

@@ -38,5 +38,16 @@ class FixedOpcodeCodecTest {
         assertEquals(2, interrupt.length());
     }
 
+    @Test
+    void encodesAndDecodesRepeatPrefixesExplicitly() {
+        var repeated = parser.parseProgram("REP\nMOVSB\n").get(0);
+        assertArrayEquals(new byte[] { (byte) 0xF3, (byte) 0xA4 }, encoder.encode(repeated, 0).bytes());
+
+        DecodedInstruction decoded = decoder.decode(new byte[] { (byte) 0xF3, (byte) 0xA4 }, 0);
+        assertEquals(Opcode.MOVSB, decoded.instruction().getOpcode());
+        assertEquals(Opcode.REP, decoded.instruction().getPrefix());
+        assertEquals(2, decoded.length());
+    }
+
     private byte[] bytes(String source) { return encoder.encode(parser.parseLine(source), 0).bytes(); }
 }

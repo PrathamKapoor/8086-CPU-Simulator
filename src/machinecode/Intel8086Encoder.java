@@ -24,6 +24,9 @@ public final class Intel8086Encoder {
             case AAM, AAD -> new byte[] { (byte) fixedOpcode(instruction.getOpcode()),
                 (byte) (instruction.getImmediate() == 0 ? 10 : instruction.getImmediate()) };
             case INT -> new byte[] { (byte) 0xCD, (byte) instruction.getImmediate() };
+            case INC, DEC -> encodeIncDec(instruction);
+            case PUSH, POP -> encodePushPop(instruction);
+            case NEG, NOT -> encodeUnary(instruction);
             case MOV -> encodeMov(instruction);
             case ADD, OR, ADC, SBB, AND, SUB, XOR, CMP -> encodeAlu(instruction);
             case JMP, CALL, JZ_JE, JNZ_JNE, JC_JB, JNC_JNB, JO, JNO, JS, JNS,
@@ -31,14 +34,24 @@ public final class Intel8086Encoder {
                  JNBE_JA, LOOP, LOOPZ, LOOPNZ, JCXZ -> encodeRelativeControlTransfer(instruction, instructionAddress);
             default -> throw new EncodeException("8086 encoder does not yet support " + instruction.getOpcode());
         };
-        return new EncodedInstruction(instruction, bytes);
+        if (instruction.getPrefix() == null) return new EncodedInstruction(instruction, bytes);
+        int prefix = switch (instruction.getPrefix()) {
+            case REP, REPE -> 0xF3;
+            case REPNE -> 0xF2;
+            default -> throw new EncodeException("unsupported instruction prefix: " + instruction.getPrefix());
+        };
+        byte[] prefixed = new byte[bytes.length + 1];
+        prefixed[0] = (byte) prefix;
+        System.arraycopy(bytes, 0, prefixed, 1, bytes.length);
+        return new EncodedInstruction(instruction, prefixed);
     }
 
     private byte[] encodeMov(Instruction instruction) {
         String dest = normalized(instruction.getDestReg());
         String src = normalized(instruction.getSrcReg());
         if (instruction.getFormat() == InstructionFormat.REG_IMM || instruction.getFormat() == InstructionFormat.REG_IMM8) {
-            boolean byteWidth = isByteRegister(dest);
+            boolean byteWidth = (dest != null && isByteRegister(dest))
+                || (instruction.getRawText() != null && instruction.getRawText().toUpperCase(Locale.ROOT).startsWith("BYTE"));
             int immediate = instruction.getImmediate();
             if (byteWidth && (immediate < -128 || immediate > 0xFF)) throw new EncodeException("imm8 outside range: " + immediate);
             if (!byteWidth && (immediate < Short.MIN_VALUE || immediate > 0xFFFF)) throw new EncodeException("imm16 outside range: " + immediate);
@@ -71,12 +84,16 @@ public final class Intel8086Encoder {
         int base = aluBase(instruction.getOpcode());
         String dest = normalized(instruction.getDestReg());
         String src = normalized(instruction.getSrcReg());
-        if (instruction.getFormat() == InstructionFormat.REG_IMM || instruction.getFormat() == InstructionFormat.REG_IMM8) {
-            boolean byteWidth = isByteRegister(dest);
+        if (instruction.getFormat() == InstructionFormat.REG_IMM || instruction.getFormat() == InstructionFormat.REG_IMM8
+            || instruction.getFormat() == InstructionFormat.REG_INDIRECT_IMM) {
+            boolean byteWidth = (dest != null && isByteRegister(dest))
+                || (instruction.getRawText() != null && instruction.getRawText().toUpperCase(Locale.ROOT).startsWith("BYTE"));
             int immediate = instruction.getImmediate();
             if (byteWidth && (immediate < -128 || immediate > 0xFF)) throw new EncodeException("imm8 outside range: " + immediate);
             if (!byteWidth && (immediate < Short.MIN_VALUE || immediate > 0xFFFF)) throw new EncodeException("imm16 outside range: " + immediate);
-            ModRm modRm = ModRm.registerDirect(aluExtension(instruction.getOpcode()), generalRegisterCode(dest));
+            ModRm modRm = isMemory(dest)
+                ? memoryOperand(instruction, aluExtension(instruction.getOpcode()))
+                : ModRm.registerDirect(aluExtension(instruction.getOpcode()), generalRegisterCode(dest));
             ByteArrayOutputStream output = new ByteArrayOutputStream();
             output.write(byteWidth ? 0x80 : 0x81);
             output.writeBytes(modRm.toBytes());
@@ -120,6 +137,25 @@ public final class Intel8086Encoder {
         int displacement = target - (address + 2);
         if (displacement < -128 || displacement > 127) throw new EncodeException(instruction.getOpcode() + " target out of rel8 range: " + target);
         return new byte[] { (byte) controlOpcode(instruction.getOpcode()), (byte) displacement };
+    }
+
+    private byte[] encodeIncDec(Instruction instruction) {
+        String target = normalized(instruction.getDestReg());
+        if (isByteRegister(target)) return new byte[] { (byte) 0xFE, (byte) ((instruction.getOpcode() == Opcode.INC ? 0xC0 : 0xC8) | generalRegisterCode(target)) };
+        return new byte[] { (byte) ((instruction.getOpcode() == Opcode.INC ? 0x40 : 0x48) + generalRegisterCode(target)) };
+    }
+
+    private byte[] encodePushPop(Instruction instruction) {
+        String target = normalized(instruction.getDestReg());
+        if (isByteRegister(target)) throw new EncodeException("8086 PUSH/POP requires a word operand");
+        return new byte[] { (byte) ((instruction.getOpcode() == Opcode.PUSH ? 0x50 : 0x58) + generalRegisterCode(target)) };
+    }
+
+    private byte[] encodeUnary(Instruction instruction) {
+        String target = normalized(instruction.getDestReg());
+        int extension = instruction.getOpcode() == Opcode.NOT ? 2 : 3;
+        boolean byteWidth = isByteRegister(target);
+        return new byte[] { (byte) (byteWidth ? 0xF6 : 0xF7), (byte) (0xC0 | (extension << 3) | generalRegisterCode(target)) };
     }
 
     private static ModRm memoryOperand(Instruction instruction, int regField) {
