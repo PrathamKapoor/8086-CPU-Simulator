@@ -156,6 +156,57 @@ jobs:
           JAVA_OPTS: ${{ env.JAVA_OPTS }}
 
       # ------------------------------------------------------------------
+      # Phase 6 research platform verification: a deterministic, scripted
+      # exercise of the packaged jar's ResearchCli covering the experiment
+      # catalog, a single run's JSON output, an A/B comparison, a
+      # repeated/deterministic run, JSON+CSV export, and cycle-timeline
+      # analysis. This is in addition to (not instead of) the unit test
+      # suite's GoldenExperimentsTest/InvariantPropertyTest/
+      # ComparisonAndReproducibilityTest, which already ran above via
+      # `mvn test`; this step exercises the actual jar artifact.
+      # ------------------------------------------------------------------
+      - name: Run deterministic Phase 6 research platform verification
+        id: phase6-research
+        run: |
+          set -e
+          echo "---- experiment list ----"
+          java -cp target/cpu-simulator.jar simulator.ResearchCli experiment list | tee phase6-list.txt
+          grep -q "sequential-alu" phase6-list.txt
+          grep -q "queue-starvation" phase6-list.txt
+
+          echo "---- experiment run (JSON) ----"
+          java -cp target/cpu-simulator.jar simulator.ResearchCli experiment run sequential-alu --json | tee phase6-run.json
+          grep -q '"passed":true' phase6-run.json
+          grep -q '"resultHash"' phase6-run.json
+
+          echo "---- experiment compare ----"
+          java -cp target/cpu-simulator.jar simulator.ResearchCli experiment compare taken-branch not-taken-branch | tee phase6-compare.txt
+          grep -q "cycles" phase6-compare.txt
+
+          echo "---- experiment repeat (determinism) ----"
+          java -cp target/cpu-simulator.jar simulator.ResearchCli experiment repeat loop-workload 3 | tee phase6-repeat.txt
+          grep -q "allIdentical=true" phase6-repeat.txt
+
+          echo "---- experiment export (JSON + CSV) ----"
+          java -cp target/cpu-simulator.jar simulator.ResearchCli experiment export sequential-alu phase6-export.json
+          java -cp target/cpu-simulator.jar simulator.ResearchCli experiment export sequential-alu phase6-export.csv
+          grep -q '"experimentId"' phase6-export.json
+          grep -q "^experimentId,resultHash,passed" phase6-export.csv
+
+          echo "---- experiment analyze (cycle timeline) ----"
+          java -cp target/cpu-simulator.jar simulator.ResearchCli experiment analyze queue-starvation | tee phase6-analyze.txt
+          grep -q "total=" phase6-analyze.txt
+          grep -q "stalledCycleCount=" phase6-analyze.txt
+
+          echo "---- experiment batch ----"
+          java -cp target/cpu-simulator.jar simulator.ResearchCli experiment batch sequential-alu,loop-workload FUNCTIONAL,SIMPLIFIED_8086 | tee phase6-batch.json
+          grep -q '"cells"' phase6-batch.json
+
+          echo "Phase 6 research platform verification passed."
+        env:
+          JAVA_OPTS: ${{ env.JAVA_OPTS }}
+
+      # ------------------------------------------------------------------
       # Security / repository audit: no tracked build artifacts, no
       # generated dependency files, no secrets/credentials/.env files.
       # ------------------------------------------------------------------
